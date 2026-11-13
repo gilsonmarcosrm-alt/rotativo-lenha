@@ -53,9 +53,8 @@ const chave = r => r.numero + r.letra;
 
 async function atualizarInicio() {
   const regs = await todos();
-  const unicos = new Set(regs.filter(r => r.numero).map(chave));
-  $('total').textContent = unicos.size;
-  $('contaCam').textContent = unicos.size;
+  $('total').textContent = regs.length;
+  fotosTela = regs.length; $('contaCam').textContent = regs.length;
   $('ola').textContent = 'Olá, ' + cfg.nome;
   const pend = regs.filter(r => !r.enviado).length;
   const enviados = regs.length - pend;
@@ -97,8 +96,8 @@ async function ler(canvas) {
   return Leitura.interpretar(a, b, r.geo);
 }
 
-// ---------- camera ----------
-let fluxo = null, ocupado = false, pendente = null;
+// ---------- camera: livre e rapida, sem travas ----------
+let fluxo = null;
 async function abrirCamera() {
   mostrar('telaCamera');
   iniciarOCR();
@@ -117,7 +116,7 @@ async function abrirCamera() {
       catch (e) { acesa = false; }
     };
   } catch (e) {
-    alert('Não consegui abrir a câmera. Libere o acesso à câmera para o Inventário Lenha nas configurações do celular.');
+    alert('Não consegui abrir a câmera. Libere o acesso à câmera nas configurações do celular.');
     fecharCamera();
   }
 }
@@ -125,66 +124,60 @@ function fecharCamera() {
   if (fluxo) fluxo.getTracks().forEach(t => t.stop());
   fluxo = null; mostrar('telaInicio'); atualizarInicio();
 }
-// recorta a area do quadro guia (com folga) direto do video em boa resolucao
+// foto da tela inteira, reduzida para enviar rapido
 function capturarQuadro() {
-  const v = $('video'), g = $('guia').getBoundingClientRect(), tela = v.getBoundingClientRect();
-  const vw = v.videoWidth, vh = v.videoHeight;
-  const esc = Math.max(tela.width / vw, tela.height / vh);
-  const offX = (tela.width - vw * esc) / 2, offY = (tela.height - vh * esc) / 2;
-  const folgaY = g.height * 0.25;
-  let sx = (g.left - tela.left - offX) / esc, sy = (g.top - folgaY - tela.top - offY) / esc;
-  let sw = g.width / esc, sh = (g.height + folgaY * 2) / esc;
-  sx = Math.max(0, sx); sy = Math.max(0, sy); sw = Math.min(vw - sx, sw); sh = Math.min(vh - sy, sh);
-  const s = Math.min(1, 1100 / sw);
-  const c = document.createElement('canvas'); c.width = Math.round(sw * s); c.height = Math.round(sh * s);
-  c.getContext('2d').drawImage(v, sx, sy, sw, sh, 0, 0, c.width, c.height);
+  const v = $('video');
+  const s = Math.min(1, 1400 / Math.max(v.videoWidth, v.videoHeight));
+  const c = document.createElement('canvas');
+  c.width = Math.round(v.videoWidth * s); c.height = Math.round(v.videoHeight * s);
+  c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
   return c;
 }
 const paraBlob = c => new Promise(ok => c.toBlob(ok, 'image/jpeg', 0.72));
 function vibrar(p) { try { navigator.vibrate && navigator.vibrate(p); } catch (e) {} }
 
-async function processar(canvas) {
-  if (ocupado) return; ocupado = true;
-  const res = $('resultado'); res.className = 'lendo'; res.textContent = 'Lendo...';
-  try {
-    const [blob, r] = await Promise.all([paraBlob(canvas), ler(canvas)]);
-    if (!r.ok) { abrirDigitar(blob); res.className = ''; return; }
-    await registrar(blob, r.numero, r.letra, 'auto');
-  } catch (e) {
-    res.className = ''; alert('Erro ao ler a foto: ' + e.message);
-  } finally { ocupado = false; }
+let fotosTela = 0;
+async function disparar() {
+  if (!$('video').videoWidth) return;
+  const c = capturarQuadro();
+  const f = $('flash'); f.classList.add('on'); setTimeout(() => f.classList.remove('on'), 60);
+  vibrar(30);
+  fotosTela++; $('contaCam').textContent = fotosTela;
+  const blob = await paraBlob(c);
+  const id = await salvar({ numero: null, letra: null, origem: 'auto', repetida: false, usuario: cfg.nome,
+    data: new Date().toISOString(), contagem: cfg.contagem, foto: blob, enviado: false });
+  fila.push({ id, canvas: c });
+  processarFila();
 }
-async function registrar(blob, numero, letra, origem) {
-  const regs = await todos();
-  const repetida = regs.some(x => x.numero === numero && x.letra === letra);
-  await salvar({ numero, letra, origem, repetida, usuario: cfg.nome, data: new Date().toISOString(), contagem: cfg.contagem, foto: blob, enviado: false });
-  const res = $('resultado');
-  if (repetida) {
-    res.className = '';
-    $('alertaTxt').textContent = `${numero} ${letra}`;
-    $('alerta').classList.add('mostra');
-    vibrar([400, 120, 400, 120, 400]);
-  } else {
-    res.className = 'ok'; res.textContent = `${numero} ${letra} ✓`;
-    vibrar(80);
+// leitura em segundo plano: nao trava a camera; so avisa se for repetida
+const fila = []; let lendo = false;
+async function processarFila() {
+  if (lendo) return; lendo = true;
+  while (fila.length) {
+    const { id, canvas } = fila.shift();
+    try {
+      const r = await ler(canvas);
+      if (!r.ok) continue;
+      const regs = await todos();
+      const reg = regs.find(x => x.id === id); if (!reg) continue;
+      const repetida = regs.some(x => x.id !== id && x.numero === r.numero && x.letra === r.letra);
+      reg.numero = r.numero; reg.letra = r.letra; reg.repetida = repetida;
+      await atualizar(reg);
+      if (repetida) avisarRepetida(r.numero + ' ' + r.letra);
+      else mostrarLido(r.numero + ' ' + r.letra);
+    } catch (e) {}
   }
-  atualizarInicio();
+  lendo = false;
 }
-function abrirDigitar(blob) {
-  pendente = blob;
-  $('fotoDigitar').src = URL.createObjectURL(blob);
-  $('digNum').value = ''; $('digLetra').value = '';
-  $('digitar').classList.add('mostra');
-  vibrar([150, 80, 150]);
-  setTimeout(() => $('digNum').focus(), 100);
+let tAviso;
+function avisarRepetida(txt) {
+  $('alertaTxt').textContent = txt; $('alerta').classList.add('mostra');
+  vibrar([300, 100, 300]);
+  clearTimeout(tAviso); tAviso = setTimeout(() => $('alerta').classList.remove('mostra'), 1800);
 }
-async function salvarDigitado() {
-  // aceita tudo junto ("358H" ou "358 h") em qualquer um dos dois campos
-  const tudo = ($('digNum').value + ' ' + $('digLetra').value).toUpperCase();
-  const n = parseInt((tudo.match(/\d{1,4}/) || [''])[0], 10), l = (tudo.match(/[A-Z]/) || [''])[0];
-  if (!(n >= 1 && n <= 1255) || !/^[A-Z]$/.test(l)) { alert('Número de 1 a 1255 e uma letra de A a Z.'); return; }
-  $('digitar').classList.remove('mostra');
-  await registrar(pendente, n, l, 'digitado'); pendente = null;
+function mostrarLido(txt) {
+  const r = $('resultado'); r.className = 'ok'; r.textContent = txt + ' ✓';
+  clearTimeout(r._t); r._t = setTimeout(() => { r.className = ''; }, 1200);
 }
 
 // ---------- envio para o PC ----------
@@ -238,19 +231,32 @@ async function apagarTudo() {
 // ---------- lista ----------
 async function verLista() {
   const regs = (await todos()).reverse();
-  const unicos = new Set(regs.map(chave)).size;
-  $('resumoLista').textContent = `${unicos} paletes · ${regs.length} fotos`;
+  const unicos = new Set(regs.filter(r => r.numero).map(chave)).size;
+  $('resumoLista').textContent = `${regs.length} fotos · ${unicos} já lidas no celular (o resto eu leio no PC)`;
   const l = $('lista'); l.innerHTML = '';
   for (const r of regs.slice(0, 300)) {
     const d = document.createElement('div'); d.className = 'item';
     const img = document.createElement('img'); img.src = URL.createObjectURL(r.foto); img.alt = '';
-    const b = document.createElement('b'); b.textContent = `${r.numero} ${r.letra}`;
+    const b = document.createElement('b'); b.textContent = r.numero ? `${r.numero} ${r.letra}` : '—';
     d.append(img, b);
     if (r.repetida) { const t = document.createElement('span'); t.className = 'tag rep'; t.textContent = 'repetida'; d.append(t); }
-    if (r.origem === 'digitado') { const t = document.createElement('span'); t.className = 'tag man'; t.textContent = 'digitado'; d.append(t); }
     l.append(d);
   }
   mostrar('telaLista');
+}
+
+// ---------- aviso para instalar o icone ----------
+function mostrarInstalar() {
+  const inst = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+  if (inst) return;
+  const ua = navigator.userAgent, ios = /iPhone|iPad|iPod/.test(ua), dentroApp = /FBAN|FBAV|Instagram|WhatsApp|Line\//.test(ua);
+  const el = $('instalar'); el.hidden = false;
+  if (ios && (dentroApp || !/Safari/.test(ua) || /CriOS|FxiOS/.test(ua)))
+    el.innerHTML = '<b>Para instalar:</b> abra este link no <b>Safari</b>. Depois toque em Compartilhar (quadrado com seta) e em <b>Adicionar à Tela de Início</b>.';
+  else if (ios)
+    el.innerHTML = '<b>Para instalar o ícone:</b> toque em Compartilhar (quadrado com seta) e depois em <b>Adicionar à Tela de Início</b>.';
+  else
+    el.innerHTML = '<b>Para instalar o ícone:</b> toque nos 3 pontinhos do Chrome e depois em <b>Instalar app</b> ou <b>Adicionar à tela inicial</b>.';
 }
 
 // ---------- inicio ----------
@@ -264,10 +270,8 @@ async function verLista() {
   };
   $('abrirCamera').onclick = abrirCamera;
   $('fecharCamera').onclick = fecharCamera;
-  $('disparo').onclick = () => { if (!ocupado && $('video').videoWidth) processar(capturarQuadro()); };
-  $('alerta').onclick = () => $('alerta').classList.remove('mostra');
-  $('digOk').onclick = salvarDigitado;
-  $('digCancela').onclick = () => { $('digitar').classList.remove('mostra'); pendente = null; };
+  $('disparo').onclick = disparar;
+  mostrarInstalar();
   $('enviar').onclick = enviar;
   $('apagar').onclick = apagarTudo;
   $('verLista').onclick = verLista;
