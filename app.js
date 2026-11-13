@@ -169,9 +169,13 @@ function abrirFoto(url) { $('fotoGrande').src = url; $('verFoto').style.display 
 function vibrar(p) { try { navigator.vibrate && navigator.vibrate(p); } catch (e) {} }
 
 let fotosTela = 0;
+let gravX = 0, gravY = 0;
+addEventListener('devicemotion', e => { const g = e.accelerationIncludingGravity; if (g) { gravX = g.x || 0; gravY = g.y || 0; } });
 async function disparar() {
   if (!$('video').videoWidth) return;
-  const c = capturarQuadro();
+  let c = capturarQuadro();
+  // celular deitado: a tela nao gira (igual a camera do celular), a foto sai deitada
+  if (Math.abs(gravX) > 6 && Math.abs(gravX) > Math.abs(gravY) && c.height > c.width) c = girar(c, gravX > 0 ? -1 : 1);
   const f = $('flash'); f.classList.add('on'); setTimeout(() => f.classList.remove('on'), 60);
   vibrar(30);
   fotosTela++; $('contaCam').textContent = fotosTela;
