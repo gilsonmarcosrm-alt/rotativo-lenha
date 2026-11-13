@@ -36,7 +36,7 @@
   .barra > div { height:100%; width:0; background:var(--verde); transition:width .2s; }
   /* camera */
   #telaCamera { padding:0; background:#000; position:fixed; inset:0; }
-  #video { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
+  #video { position:absolute; inset:0; width:100%; height:100%; object-fit:contain; }
   #flash { position:absolute; inset:0; background:#fff; opacity:0; pointer-events:none; transition:opacity .15s; }
   #flash.on { opacity:.6; transition:none; }
   #instalar { background:#fef7e0; border:1px solid #f9ab00; }
@@ -90,7 +90,7 @@
   <div class="espaco"></div>
   <button class="btn cinza" id="verLista">Ver contados</button>
   <button class="btn vermelho" id="apagar" disabled>Apagar contagem</button>
-  <p class="sub" style="font-size:12px">versão 12</p>
+  <p class="sub" style="font-size:12px">versão 13</p>
 </section>
 
 <!-- 3. Camera -->
