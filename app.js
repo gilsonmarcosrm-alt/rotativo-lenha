@@ -116,6 +116,7 @@ async function abrirCamera() {
     fluxo = await navigator.mediaDevices.getUserMedia({
       video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false });
     $('video').srcObject = fluxo;
+    try { await $('video').play(); } catch (e) {} // iPhone: sem isso a tela da camera fica preta
     // lanterna, quando o celular permite
     const trilha = fluxo.getVideoTracks()[0];
     let pode = false;
@@ -337,7 +338,12 @@ function mostrarInstalar() {
 (async function () {
   await abrirBanco();
   pedirArmazenamentoFixo();
-  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+  if ('serviceWorker' in navigator) {
+    // versao nova chegou: recarrega sozinho para o celular nunca ficar na velha
+    const tinha = !!navigator.serviceWorker.controller;
+    navigator.serviceWorker.addEventListener('controllerchange', () => { if (tinha && !window._recarregou) { window._recarregou = 1; location.reload(); } });
+    navigator.serviceWorker.register('sw.js').then(r => r.update()).catch(() => {});
+  }
   $('salvarNome').onclick = () => {
     const n = $('campoNome').value.trim(); if (!n) return;
     cfg.nome = n; mostrar('telaInicio'); atualizarInicio(); iniciarOCR();
