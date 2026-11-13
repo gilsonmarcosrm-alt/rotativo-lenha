@@ -1,5 +1,5 @@
 // Guarda o app no celular para funcionar sem internet no deposito.
-const CACHE = 'contalenha-v2';
+const CACHE = 'contalenha-v3';
 const ARQUIVOS = ['./', 'index.html', 'app.js', 'leitura.js', 'manifest.json', 'img/logo.png', 'img/icone-180.png',
   'img/icone-192.png', 'img/icone-512.png', 'lib/tesseract.min.js', 'lib/worker.min.js', 'lib/eng.traineddata.gz',
   'lib/tesseract-core-lstm.wasm.js', 'lib/tesseract-core-simd-lstm.wasm.js'];

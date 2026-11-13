@@ -179,7 +179,9 @@ function abrirDigitar(blob) {
   setTimeout(() => $('digNum').focus(), 100);
 }
 async function salvarDigitado() {
-  const n = parseInt($('digNum').value, 10), l = ($('digLetra').value || '').trim().toUpperCase();
+  // aceita tudo junto ("358H" ou "358 h") em qualquer um dos dois campos
+  const tudo = ($('digNum').value + ' ' + $('digLetra').value).toUpperCase();
+  const n = parseInt((tudo.match(/\d{1,4}/) || [''])[0], 10), l = (tudo.match(/[A-Z]/) || [''])[0];
   if (!(n >= 1 && n <= 1255) || !/^[A-Z]$/.test(l)) { alert('Número de 1 a 1255 e uma letra de A a Z.'); return; }
   $('digitar').classList.remove('mostra');
   await registrar(pendente, n, l, 'digitado'); pendente = null;
