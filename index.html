@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Conta Lenha</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#1f3a5f">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Conta Lenha">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="apple-touch-icon" href="img/icone-180.png">
+<link rel="icon" href="img/icone-192.png">
+<style>
+  :root { --azul:#1f3a5f; --verde:#1e8e3e; --vermelho:#d93025; --laranja:#e37400; --cinza:#f1f3f4; --texto:#202124; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body { margin:0; height:100%; background:#fff; color:var(--texto); font-family:-apple-system,system-ui,Segoe UI,Roboto,sans-serif; }
+  body { overscroll-behavior:none; }
+  .tela { display:none; min-height:100%; padding:calc(16px + env(safe-area-inset-top)) 16px calc(16px + env(safe-area-inset-bottom)); flex-direction:column; gap:14px; }
+  .tela.ativa { display:flex; }
+  .logo { width:62%; max-width:300px; align-self:center; margin:12px 0 4px; }
+  h1 { margin:0; text-align:center; font-size:26px; color:var(--azul); }
+  .sub { text-align:center; color:#5f6368; margin:0; font-size:15px; }
+  input { font-size:22px; padding:14px; border:2px solid #dadce0; border-radius:12px; width:100%; }
+  .btn { border:0; border-radius:16px; font-size:22px; font-weight:700; padding:20px; color:#fff; background:var(--azul); width:100%; }
+  .btn:active { transform:scale(.98); opacity:.9; }
+  .btn.verde { background:var(--verde); } .btn.vermelho { background:var(--vermelho); } .btn.cinza { background:var(--cinza); color:var(--texto); }
+  .btn.gigante { font-size:30px; padding:30px; }
+  .btn:disabled { opacity:.35; }
+  .contador { text-align:center; font-size:64px; font-weight:800; color:var(--azul); line-height:1; }
+  .contador small { display:block; font-size:16px; font-weight:500; color:#5f6368; margin-top:6px; }
+  .info { background:var(--cinza); border-radius:12px; padding:12px 14px; font-size:15px; line-height:1.4; }
+  .espaco { flex:1; }
+  .barra { height:14px; background:var(--cinza); border-radius:8px; overflow:hidden; }
+  .barra > div { height:100%; width:0; background:var(--verde); transition:width .2s; }
+  /* camera */
+  #telaCamera { padding:0; background:#000; position:fixed; inset:0; }
+  #video { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
+  #guia { position:absolute; left:6%; right:6%; top:32%; height:26%; border:4px solid #fff; border-radius:14px; box-shadow:0 0 0 2000px rgba(0,0,0,.35); }
+  #dica { position:absolute; top:calc(14px + env(safe-area-inset-top)); left:0; right:0; text-align:center; color:#fff; font-size:17px; text-shadow:0 1px 3px #000; }
+  #resultado { position:absolute; left:12px; right:12px; top:calc(60px + env(safe-area-inset-top)); text-align:center; color:#fff; font-size:44px; font-weight:800; border-radius:14px; padding:8px; display:none; }
+  #resultado.ok { display:block; background:rgba(30,142,62,.9); }
+  #resultado.lendo { display:block; background:rgba(0,0,0,.6); font-size:24px; }
+  #alerta { position:absolute; inset:0; background:var(--vermelho); color:#fff; display:none; flex-direction:column; align-items:center; justify-content:center; text-align:center; gap:10px; z-index:5; }
+  #alerta.mostra { display:flex; }
+  #alerta b { font-size:56px; } #alerta span { font-size:28px; }
+  .rodape { position:absolute; left:0; right:0; bottom:0; padding:16px 16px calc(20px + env(safe-area-inset-bottom)); display:flex; align-items:center; justify-content:space-between; }
+  #disparo { width:86px; height:86px; border-radius:50%; border:6px solid #fff; background:rgba(255,255,255,.35); }
+  #disparo:active { background:#fff; }
+  .mini { color:#fff; background:rgba(0,0,0,.5); border:0; border-radius:12px; font-size:17px; padding:12px 14px; min-width:96px; }
+  #contaCam { color:#fff; font-size:20px; font-weight:700; min-width:96px; text-align:center; }
+  /* digitar */
+  #digitar { position:absolute; inset:0; background:#fff; z-index:6; display:none; flex-direction:column; padding:calc(16px + env(safe-area-inset-top)) 16px calc(16px + env(safe-area-inset-bottom)); gap:12px; }
+  #digitar.mostra { display:flex; }
+  #digitar img { width:100%; max-height:28vh; object-fit:contain; border-radius:10px; background:#000; }
+  .linha { display:flex; gap:10px; } .linha input { text-align:center; font-size:34px; font-weight:800; }
+  /* lista */
+  .item { display:flex; align-items:center; gap:10px; padding:8px; border-bottom:1px solid #eee; }
+  .item img { width:84px; height:40px; object-fit:cover; border-radius:6px; background:#ddd; }
+  .item b { font-size:22px; min-width:96px; } .item .tag { font-size:13px; padding:2px 8px; border-radius:10px; background:var(--cinza); }
+  .tag.rep { background:#fce8e6; color:var(--vermelho); } .tag.man { background:#fef7e0; color:var(--laranja); }
+</style>
+</head>
+<body>
+
+<!-- 1. Primeira vez: nome -->
+<section id="telaNome" class="tela">
+  <img class="logo" src="img/logo.png" alt="Minerva Foods">
+  <h1>Conta Lenha</h1>
+  <p class="sub">Digite seu nome para começar</p>
+  <input id="campoNome" autocomplete="name" placeholder="Seu nome">
+  <button class="btn" id="salvarNome">Entrar</button>
+</section>
+
+<!-- 2. Inicio -->
+<section id="telaInicio" class="tela">
+  <img class="logo" src="img/logo.png" alt="Minerva Foods">
+  <h1>Conta Lenha</h1>
+  <p class="sub" id="ola"></p>
+  <div class="contador"><span id="total">0</span><small>paletes contados</small></div>
+  <button class="btn gigante" id="abrirCamera">📷 CONTAR</button>
+  <button class="btn verde" id="enviar">Enviar fotos</button>
+  <div class="barra" id="barra" hidden><div></div></div>
+  <div class="info" id="situacao"></div>
+  <div class="espaco"></div>
+  <button class="btn cinza" id="verLista">Ver contados</button>
+  <button class="btn vermelho" id="apagar" disabled>Apagar contagem</button>
+</section>
+
+<!-- 3. Camera -->
+<section id="telaCamera" class="tela">
+  <video id="video" playsinline muted autoplay></video>
+  <div id="guia"></div>
+  <div id="dica">Coloque o número da etiqueta dentro do quadro</div>
+  <div id="resultado"></div>
+  <div id="alerta"><b>JÁ CONTADO</b><span id="alertaTxt"></span><span style="font-size:18px">Toque para continuar</span></div>
+  <div class="rodape">
+    <button class="mini" id="fecharCamera">Voltar</button>
+    <button id="disparo" aria-label="Tirar foto"></button>
+    <div id="contaCam">0</div>
+  </div>
+  <div id="digitar">
+    <h1>Não consegui ler</h1>
+    <p class="sub">Digite o número e a letra da etiqueta</p>
+    <img id="fotoDigitar" alt="">
+    <div class="linha">
+      <input id="digNum" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="Nº">
+      <input id="digLetra" maxlength="1" autocapitalize="characters" placeholder="Letra" style="max-width:40%">
+    </div>
+    <button class="btn verde" id="digOk">Salvar</button>
+    <button class="btn cinza" id="digCancela">Descartar foto</button>
+  </div>
+</section>
+
+<!-- 4. Lista -->
+<section id="telaLista" class="tela">
+  <h1>Contados</h1>
+  <p class="sub" id="resumoLista"></p>
+  <div id="lista"></div>
+  <button class="btn cinza" id="voltarLista">Voltar</button>
+</section>
+
+<input type="file" id="arquivoTeste" accept="image/*" hidden>
+<script src="lib/tesseract.min.js"></script>
+<script src="leitura.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
