@@ -1,6 +1,6 @@
 {
-  "name": "Conta Lenha",
-  "short_name": "Conta Lenha",
+  "name": "Inventário Lenha",
+  "short_name": "Inventário Lenha",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

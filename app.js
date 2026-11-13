@@ -1,4 +1,4 @@
-/* Conta Lenha - app de contagem de paletes de lenha */
+/* Inventário Lenha - app de contagem de paletes de lenha */
 'use strict';
 const $ = id => document.getElementById(id);
 const VERSAO = '1';
@@ -106,8 +106,18 @@ async function abrirCamera() {
     fluxo = await navigator.mediaDevices.getUserMedia({
       video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false });
     $('video').srcObject = fluxo;
+    // lanterna, quando o celular permite
+    const trilha = fluxo.getVideoTracks()[0];
+    let pode = false;
+    try { pode = !!(trilha.getCapabilities && trilha.getCapabilities().torch); } catch (e) {}
+    const bt = $('lanterna'); bt.hidden = !pode; let acesa = false;
+    bt.onclick = async () => {
+      acesa = !acesa;
+      try { await trilha.applyConstraints({ advanced: [{ torch: acesa }] }); bt.textContent = acesa ? '🔦 Apagar' : '🔦 Lanterna'; }
+      catch (e) { acesa = false; }
+    };
   } catch (e) {
-    alert('Não consegui abrir a câmera. Libere o acesso à câmera para o Conta Lenha nas configurações do celular.');
+    alert('Não consegui abrir a câmera. Libere o acesso à câmera para o Inventário Lenha nas configurações do celular.');
     fecharCamera();
   }
 }

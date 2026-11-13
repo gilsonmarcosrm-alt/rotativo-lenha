@@ -3,12 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
-<title>Conta Lenha</title>
+<title>Inventário Lenha</title>
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#1f3a5f">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="Conta Lenha">
+<meta name="apple-mobile-web-app-title" content="Inventário Lenha">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="apple-touch-icon" href="img/icone-180.png">
 <link rel="icon" href="img/icone-192.png">
@@ -67,7 +67,7 @@
 <!-- 1. Primeira vez: nome -->
 <section id="telaNome" class="tela">
   <img class="logo" src="img/logo.png" alt="Minerva Foods">
-  <h1>Conta Lenha</h1>
+  <h1>Inventário Lenha</h1>
   <p class="sub">Digite seu nome para começar</p>
   <input id="campoNome" autocomplete="name" placeholder="Seu nome">
   <button class="btn" id="salvarNome">Entrar</button>
@@ -76,7 +76,7 @@
 <!-- 2. Inicio -->
 <section id="telaInicio" class="tela">
   <img class="logo" src="img/logo.png" alt="Minerva Foods">
-  <h1>Conta Lenha</h1>
+  <h1>Inventário Lenha</h1>
   <p class="sub" id="ola"></p>
   <div class="contador"><span id="total">0</span><small>paletes contados</small></div>
   <button class="btn gigante" id="abrirCamera">📷 CONTAR</button>
@@ -94,6 +94,7 @@
   <div id="guia"></div>
   <div id="dica">Coloque o número da etiqueta dentro do quadro</div>
   <div id="resultado"></div>
+  <button class="mini" id="lanterna" hidden style="position:absolute;right:12px;bottom:calc(130px + env(safe-area-inset-bottom))">🔦 Lanterna</button>
   <div id="alerta"><b>JÁ CONTADO</b><span id="alertaTxt"></span><span style="font-size:18px">Toque para continuar</span></div>
   <div class="rodape">
     <button class="mini" id="fecharCamera">Voltar</button>
