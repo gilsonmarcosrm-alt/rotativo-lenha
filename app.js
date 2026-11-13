@@ -161,6 +161,9 @@ async function disparar() {
   vibrar(30);
   fotosTela++; $('contaCam').textContent = fotosTela;
   const blob = await paraBlob(c);
+  // miniatura da ultima foto, como na camera do celular
+  const m = $('miniatura'); if (m._url) URL.revokeObjectURL(m._url);
+  m._url = URL.createObjectURL(blob); m.src = m._url; m.style.visibility = 'visible';
   const id = await salvar({ numero: null, letra: null, origem: 'auto', repetida: false, usuario: cfg.nome,
     data: new Date().toISOString(), contagem: cfg.contagem, foto: blob, enviado: false });
   fila.push({ id, canvas: c });
@@ -288,6 +291,8 @@ function mostrarInstalar() {
   $('abrirCamera').onclick = abrirCamera;
   $('fecharCamera').onclick = fecharCamera;
   $('disparo').onclick = disparar;
+  $('miniatura').onclick = () => { if (!$('miniatura')._url) return; $('fotoGrande').src = $('miniatura')._url; $('verFoto').style.display = 'flex'; };
+  $('verFoto').onclick = () => { $('verFoto').style.display = 'none'; };
   mostrarInstalar();
   $('enviar').onclick = enviar;
   $('apagar').onclick = apagarTudo;
