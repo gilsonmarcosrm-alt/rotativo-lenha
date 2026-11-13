@@ -108,7 +108,24 @@ async function abrirCamera() {
     // lanterna, quando o celular permite
     const trilha = fluxo.getVideoTracks()[0];
     let pode = false;
-    try { pode = !!(trilha.getCapabilities && trilha.getCapabilities().torch); } catch (e) {}
+    let cap = {};
+    try { cap = trilha.getCapabilities ? trilha.getCapabilities() : {}; pode = !!cap.torch; } catch (e) {}
+    // zoom, quando o celular permite
+    const z = $('zooms'); z.innerHTML = '';
+    if (cap.zoom && cap.zoom.max > 1) {
+      const niveis = [cap.zoom.min < 1 ? cap.zoom.min : null, 1, 2, cap.zoom.max >= 4 ? 4 : null].filter(n => n && n >= cap.zoom.min && n <= cap.zoom.max);
+      for (const n of niveis) {
+        const b = document.createElement('button'); b.className = 'mini'; b.style.minWidth = '64px';
+        b.textContent = (Math.round(n * 10) / 10) + 'x';
+        b.onclick = async () => {
+          try { await trilha.applyConstraints({ advanced: [{ zoom: n }] }); } catch (e) {}
+          z.querySelectorAll('button').forEach(x => x.style.background = 'rgba(0,0,0,.5)'); b.style.background = '#e37400';
+        };
+        if (n === 1) b.style.background = '#e37400';
+        z.append(b);
+      }
+      z.hidden = false;
+    } else z.hidden = true;
     const bt = $('lanterna'); bt.hidden = !pode; let acesa = false;
     bt.onclick = async () => {
       acesa = !acesa;
