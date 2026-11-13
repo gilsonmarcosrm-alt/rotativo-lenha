@@ -151,6 +151,9 @@ function capturarQuadro() {
   return c;
 }
 const paraBlob = c => new Promise(ok => c.toBlob(ok, 'image/jpeg', 0.72));
+// iPhone estraga Blob guardado no banco: guarda os bytes e remonta a foto na hora de usar
+const fotoBlob = r => r.foto instanceof Blob ? r.foto : new Blob([r.foto], { type: 'image/jpeg' });
+function abrirFoto(url) { $('fotoGrande').src = url; $('verFoto').style.display = 'flex'; }
 function vibrar(p) { try { navigator.vibrate && navigator.vibrate(p); } catch (e) {} }
 
 let fotosTela = 0;
@@ -165,7 +168,7 @@ async function disparar() {
   const m = $('miniatura'); if (m._url) URL.revokeObjectURL(m._url);
   m._url = URL.createObjectURL(blob); m.src = m._url; m.style.visibility = 'visible';
   const id = await salvar({ numero: null, letra: null, origem: 'auto', repetida: false, usuario: cfg.nome,
-    data: new Date().toISOString(), contagem: cfg.contagem, foto: blob, enviado: false });
+    data: new Date().toISOString(), contagem: cfg.contagem, foto: await blob.arrayBuffer(), enviado: false });
   fila.push({ id, canvas: c });
   processarFila();
 }
@@ -222,7 +225,7 @@ async function enviar() {
       for (let t = 0; t < 3 && !ok; t++) {
         try {
           const resp = await fetch(`${destino.url}/foto?contagem=${encodeURIComponent(r.contagem)}&id=${r.id}`, {
-            method: 'PUT', body: r.foto,
+            method: 'PUT', body: fotoBlob(r),
             headers: { 'X-Chave': destino.chave, 'X-Info': btoa(unescape(encodeURIComponent(JSON.stringify(info)))), 'Content-Type': 'image/jpeg' } });
           ok = resp.ok;
         } catch (e) {}
@@ -256,7 +259,8 @@ async function verLista() {
   const l = $('lista'); l.innerHTML = '';
   for (const r of regs.slice(0, 300)) {
     const d = document.createElement('div'); d.className = 'item';
-    const img = document.createElement('img'); img.src = URL.createObjectURL(r.foto); img.alt = '';
+    const img = document.createElement('img'); img.src = URL.createObjectURL(fotoBlob(r)); img.alt = '';
+    d.onclick = () => abrirFoto(img.src);
     const b = document.createElement('b'); b.textContent = r.numero ? `${r.numero} ${r.letra}` : '—';
     d.append(img, b);
     if (r.repetida) { const t = document.createElement('span'); t.className = 'tag rep'; t.textContent = 'repetida'; d.append(t); }
@@ -291,7 +295,7 @@ function mostrarInstalar() {
   $('abrirCamera').onclick = abrirCamera;
   $('fecharCamera').onclick = fecharCamera;
   $('disparo').onclick = disparar;
-  $('miniatura').onclick = () => { if (!$('miniatura')._url) return; $('fotoGrande').src = $('miniatura')._url; $('verFoto').style.display = 'flex'; };
+  $('miniatura').onclick = () => { if (!$('miniatura')._url) return; abrirFoto($('miniatura')._url); };
   $('verFoto').onclick = () => { $('verFoto').style.display = 'none'; };
   mostrarInstalar();
   $('enviar').onclick = enviar;
