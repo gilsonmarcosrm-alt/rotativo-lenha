@@ -50,7 +50,7 @@
   #disparo { width:86px; height:86px; border-radius:50%; border:6px solid #fff; background:rgba(255,255,255,.35); }
   #disparo:active { background:#fff; }
   .mini { color:#fff; background:rgba(0,0,0,.5); border:0; border-radius:12px; font-size:17px; padding:12px 14px; min-width:96px; }
-  #contaCam { color:#fff; font-size:20px; font-weight:700; min-width:104px; text-align:center; }
+  #contaCam { color:#fff; font-size:20px; font-weight:700; min-width:150px; text-align:center; }
   /* digitar */
   #digitar { position:absolute; inset:0; background:#fff; z-index:6; display:none; flex-direction:column; padding:calc(16px + env(safe-area-inset-top)) 16px calc(16px + env(safe-area-inset-bottom)); gap:12px; }
   #digitar.mostra { display:flex; }
@@ -82,13 +82,15 @@
   <div class="info" id="instalar" hidden></div>
   <div class="contador"><span id="total">0</span><small>fotos tiradas</small></div>
   <button class="btn gigante" id="abrirCamera">📷 CONTAR</button>
+  <button class="btn cinza" id="btnGaleria">🖼️ Trazer fotos da galeria</button>
+  <input type="file" id="galeria" accept="image/*" multiple hidden>
   <button class="btn verde" id="enviar">Enviar fotos</button>
   <div class="barra" id="barra" hidden><div></div></div>
   <div class="info" id="situacao"></div>
   <div class="espaco"></div>
   <button class="btn cinza" id="verLista">Ver contados</button>
   <button class="btn vermelho" id="apagar" disabled>Apagar contagem</button>
-  <p class="sub" style="font-size:12px">versão 9</p>
+  <p class="sub" style="font-size:12px">versão 11</p>
 </section>
 
 <!-- 3. Camera -->
@@ -101,7 +103,7 @@
   <div id="alerta"><b>JÁ CONTADO</b><span id="alertaTxt"></span></div>
   <button class="mini" id="fecharCamera" style="position:absolute;right:12px;top:calc(12px + env(safe-area-inset-top))">‹ Voltar</button>
   <div class="rodape">
-    <img id="miniatura" alt="" style="width:104px;height:104px;border-radius:14px;object-fit:cover;border:3px solid #fff;background:rgba(255,255,255,.15)">
+    <img id="miniatura" alt="" style="width:150px;height:90px;border-radius:12px;object-fit:cover;border:3px solid #fff;background:rgba(255,255,255,.15)">
     <button id="disparo" aria-label="Tirar foto"></button>
     <div id="contaCam">0</div>
   </div>

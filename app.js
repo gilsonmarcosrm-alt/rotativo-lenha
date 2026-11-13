@@ -85,7 +85,18 @@ function paraCanvas(img) {
   c.getContext('2d').putImageData(new ImageData(img.data, img.width, img.height), 0, 0);
   return c;
 }
+function girar(c, sentido) {
+  const g = document.createElement('canvas'); g.width = c.height; g.height = c.width;
+  const x = g.getContext('2d'); x.translate(g.width / 2, g.height / 2); x.rotate(sentido * Math.PI / 2);
+  x.drawImage(c, -c.width / 2, -c.height / 2); return g;
+}
+// celular deitado: se nao ler de primeira, tenta a foto girada
 async function ler(canvas) {
+  let r = await ler1(canvas);
+  for (const sentido of [1, -1]) if (!r.ok) r = await ler1(girar(canvas, sentido));
+  return r;
+}
+async function ler1(canvas) {
   await iniciarOCR();
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   const id = ctx.getImageData(0, 0, canvas.width, canvas.height);
@@ -174,23 +185,62 @@ async function disparar() {
 }
 // leitura em segundo plano: nao trava a camera; so avisa se for repetida
 const fila = []; let lendo = false;
+const pegar = id => tx('readonly', st => st.get(id));
+let lidos = null; // numero+letra ja lidos -> id da foto (evita reler o banco inteiro a cada foto)
+function carregarImagem(blob) {
+  return new Promise((ok, erro) => {
+    const u = URL.createObjectURL(blob), im = new Image();
+    im.onload = () => { URL.revokeObjectURL(u); ok(im); };
+    im.onerror = () => { URL.revokeObjectURL(u); erro(new Error('imagem')); };
+    im.src = u;
+  });
+}
+function reduzir(im) {
+  const w = im.naturalWidth || im.width, h = im.naturalHeight || im.height;
+  const s = Math.min(1, 1400 / Math.max(w, h));
+  const c = document.createElement('canvas'); c.width = Math.round(w * s); c.height = Math.round(h * s);
+  c.getContext('2d').drawImage(im, 0, 0, c.width, c.height); return c;
+}
 async function processarFila() {
   if (lendo) return; lendo = true;
+  if (!lidos) { lidos = new Map(); for (const x of await todos()) if (x.numero) lidos.set(x.numero + x.letra, x.id); }
   while (fila.length) {
-    const { id, canvas } = fila.shift();
+    const item = fila.shift();
     try {
+      const reg = await pegar(item.id); if (!reg) continue;
+      const canvas = item.canvas || reduzir(await carregarImagem(fotoBlob(reg)));
       const r = await ler(canvas);
       if (!r.ok) continue;
-      const regs = await todos();
-      const reg = regs.find(x => x.id === id); if (!reg) continue;
-      const repetida = regs.some(x => x.id !== id && x.numero === r.numero && x.letra === r.letra);
+      const k = r.numero + r.letra;
+      const repetida = lidos.has(k) && lidos.get(k) !== item.id;
+      if (!lidos.has(k)) lidos.set(k, item.id);
       reg.numero = r.numero; reg.letra = r.letra; reg.repetida = repetida;
       await atualizar(reg);
+      if (item.galeria) continue;
       if (repetida) avisarRepetida(r.numero + ' ' + r.letra);
       else mostrarLido(r.numero + ' ' + r.letra);
     } catch (e) {}
   }
   lendo = false;
+}
+// fotos que ja estao na galeria do celular
+async function importarGaleria(arquivos) {
+  const lista = [...arquivos]; if (!lista.length) return;
+  const barra = $('barra'); barra.hidden = false; let n = 0;
+  for (const f of lista) {
+    try {
+      const c = reduzir(await carregarImagem(f));
+      const blob = await paraBlob(c);
+      const id = await salvar({ numero: null, letra: null, origem: 'galeria', repetida: false, usuario: cfg.nome,
+        data: new Date().toISOString(), contagem: cfg.contagem, foto: await blob.arrayBuffer(), enviado: false });
+      fila.push({ id, galeria: true });
+    } catch (e) {}
+    n++; barra.firstElementChild.style.width = (100 * n / lista.length) + '%';
+    $('situacao').textContent = `Trazendo da galeria ${n} de ${lista.length}...`;
+    $('total').textContent = Number($('total').textContent) + 1;
+  }
+  barra.hidden = true; $('galeria').value = '';
+  await atualizarInicio(); processarFila();
 }
 let tAviso;
 function avisarRepetida(txt) {
@@ -248,7 +298,7 @@ async function enviar() {
 
 async function apagarTudo() {
   if (!confirm('Apagar todas as fotos desta contagem do celular? Faça isso só depois de receber o Excel.')) return;
-  await limpar(); novaContagem(); atualizarInicio();
+  await limpar(); lidos = null; novaContagem(); atualizarInicio();
 }
 
 // ---------- lista ----------
@@ -299,6 +349,8 @@ function mostrarInstalar() {
   $('verFoto').onclick = () => { $('verFoto').style.display = 'none'; };
   mostrarInstalar();
   $('enviar').onclick = enviar;
+  $('btnGaleria').onclick = () => $('galeria').click();
+  $('galeria').onchange = e => importarGaleria(e.target.files);
   $('apagar').onclick = apagarTudo;
   $('verLista').onclick = verLista;
   $('voltarLista').onclick = () => mostrar('telaInicio');
