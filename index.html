@@ -36,7 +36,7 @@
   .barra > div { height:100%; width:0; background:var(--verde); transition:width .2s; }
   /* camera */
   #telaCamera { padding:0; background:#000; position:fixed; inset:0; }
-  #video { position:absolute; left:50%; top:45%; transform:translate(-50%,-50%); width:min(100vw, 160vh); aspect-ratio:16/9; height:auto; object-fit:cover; background:#111; }
+  #video { position:absolute; inset:0; width:100%; height:100%; object-fit:contain; }
   #flash { position:absolute; inset:0; background:#fff; opacity:0; pointer-events:none; transition:opacity .15s; }
   #flash.on { opacity:.6; transition:none; }
   #instalar { background:#fef7e0; border:1px solid #f9ab00; }
@@ -88,7 +88,7 @@
   <p class="sub" id="ola"></p>
   <div class="contador"><span id="total">0</span><small>fotos tiradas</small></div>
   <button class="btn gigante" id="abrirCamera">📷 CONTAR</button>
-  <button class="btn cinza" id="btnGaleria">🖼️ Enviar fotos da galeria</button>
+  <button class="btn cinza" id="btnGaleria">🖼️ Trazer fotos da galeria</button>
   <input type="file" id="galeria" accept="image/*" multiple hidden>
   <button class="btn verde" id="enviar">Enviar fotos</button>
   <div class="barra" id="barra" hidden><div></div></div>
@@ -96,7 +96,7 @@
   <div class="espaco"></div>
   <button class="btn cinza" id="verLista">🖼️ Ver fotos</button>
   <button class="btn vermelho" id="apagar" disabled>🗑 Apagar todas as fotos</button>
-  <p class="sub" style="font-size:12px">versão 21</p>
+  <p class="sub" style="font-size:12px">versão 22</p>
 </section>
 
 <!-- 3. Camera -->

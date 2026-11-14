@@ -155,16 +155,14 @@ function fecharCamera() {
   fluxo = null; mostrar('telaInicio'); atualizarInicio();
 }
 // foto da tela inteira, reduzida para enviar rapido
-// a foto sai igual ao quadro deitado (16:9) que aparece na tela
+// foto inteira, sem corte, igual a camera do celular; se sair em pe, deita
 function capturarQuadro() {
-  const v = $('video'), vw = v.videoWidth, vh = v.videoHeight, alvo = 16 / 9;
-  let sw = vw, sh = vh;
-  if (vw / vh < alvo) sh = Math.round(vw / alvo); else sw = Math.round(vh * alvo);
-  const sx = Math.round((vw - sw) / 2), sy = Math.round((vh - sh) / 2);
-  const s = Math.min(1, 1400 / sw);
-  const c = document.createElement('canvas');
-  c.width = Math.round(sw * s); c.height = Math.round(sh * s);
-  c.getContext('2d').drawImage(v, sx, sy, sw, sh, 0, 0, c.width, c.height);
+  const v = $('video');
+  const s = Math.min(1, 1400 / Math.max(v.videoWidth, v.videoHeight));
+  let c = document.createElement('canvas');
+  c.width = Math.round(v.videoWidth * s); c.height = Math.round(v.videoHeight * s);
+  c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+  if (c.height > c.width) c = girar(c, Math.abs(gravX) > 6 && gravX < 0 ? 1 : -1);
   return c;
 }
 const paraBlob = c => new Promise(ok => c.toBlob(ok, 'image/jpeg', 0.72));
@@ -234,53 +232,32 @@ async function processarFila() { fila.length = 0; return; // leitura fica no PC
   lendo = false;
 }
 // fotos que ja estao na galeria do celular
-// galeria: manda direto para o PC, sem guardar no app (bem mais rapido)
+// galeria: traz as fotos para dentro do app, varias ao mesmo tempo
 async function importarGaleria(arquivos) {
   const lista = [...arquivos]; $('galeria').value = ''; if (!lista.length) return;
-  const sit = $('situacao');
-  let destino;
-  try { destino = await (await fetch('url.json?t=' + Date.now(), { cache: 'no-store' })).json(); }
-  catch (e) { sit.textContent = 'Sem internet. Conecte no Wi-Fi ou nos dados e tente de novo.'; return; }
-  try { const p = await fetch(destino.url + '/ping', { headers: { 'X-Chave': destino.chave } }); if (!p.ok) throw 0; }
-  catch (e) { sit.textContent = 'O PC de casa não respondeu. Ele precisa estar ligado.'; return; }
-  const contagem = novaContagem(), usuario = cfg.nome, t0 = Date.now();
-  const barra = $('barra'); barra.hidden = false;
-  let feitos = 0, falhas = 0, prox = 0;
+  const barra = $('barra'); barra.hidden = false; $('btnGaleria').disabled = true;
+  let feitos = 0, prox = 0; const t0 = Date.now(), base = Number($('total').textContent) || 0;
   async function trabalhador() {
     while (prox < lista.length) {
-      const i = prox++;
-      let corpo = null;
+      const f = lista[prox++];
       try {
-        const f = lista[i];
         const im = window.createImageBitmap ? await createImageBitmap(f) : await carregarImagem(f);
         const w = im.naturalWidth || im.width, h = im.naturalHeight || im.height, s = Math.min(1, 1280 / Math.max(w, h));
         const c = document.createElement('canvas'); c.width = Math.round(w * s); c.height = Math.round(h * s);
         c.getContext('2d').drawImage(im, 0, 0, c.width, c.height); if (im.close) im.close();
-        corpo = await new Promise(ok => c.toBlob(ok, 'image/jpeg', 0.7));
-      } catch (e) { corpo = lista[i].size < 8000000 ? lista[i] : null; }
-      const info = btoa(unescape(encodeURIComponent(JSON.stringify({ id: i + 1, origem: 'galeria', usuario, data: new Date().toISOString() }))));
-      let ok = false;
-      for (let t = 0; t < 3 && !ok && corpo; t++) {
-        try {
-          const r = await fetch(`${destino.url}/foto?contagem=${encodeURIComponent(contagem)}&id=${i + 1}`, {
-            method: 'PUT', body: corpo, headers: { 'X-Chave': destino.chave, 'X-Info': info, 'Content-Type': 'image/jpeg' } });
-          ok = r.ok;
-        } catch (e) {}
-      }
-      if (!ok) falhas++;
+        const b = await new Promise(ok => c.toBlob(ok, 'image/jpeg', 0.7));
+        await salvar({ numero: null, letra: null, origem: 'galeria', repetida: false, usuario: cfg.nome,
+          data: new Date().toISOString(), contagem: cfg.contagem, foto: await b.arrayBuffer(), enviado: false });
+      } catch (e) {}
       feitos++; barra.firstElementChild.style.width = (100 * feitos / lista.length) + '%';
+      $('total').textContent = base + feitos;
       const resta = Math.round((Date.now() - t0) / feitos * (lista.length - feitos) / 60000);
-      sit.textContent = `Enviando ${feitos} de ${lista.length}... falta ${resta < 1 ? 'menos de 1 min' : 'uns ' + resta + ' min'}`;
+      $('situacao').textContent = `Trazendo ${feitos} de ${lista.length}... falta ${resta < 1 ? 'menos de 1 min' : 'uns ' + resta + ' min'}`;
     }
   }
-  await Promise.all(Array.from({ length: 8 }, trabalhador));
-  try {
-    await fetch(destino.url + '/fim', { method: 'POST', headers: { 'X-Chave': destino.chave, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contagem, usuario, total: lista.length, falhas }) });
-  } catch (e) {}
-  barra.hidden = true;
-  sit.textContent = falhas ? `Enviadas ${lista.length - falhas} de ${lista.length}. ${falhas} falharam: escolha essas de novo.`
-    : `Pronto! ${lista.length} fotos enviadas. A lista chega no seu e-mail.`;
+  await Promise.all(Array.from({ length: 4 }, trabalhador));
+  barra.hidden = true; $('btnGaleria').disabled = false;
+  await atualizarInicio();
 }
 let tAviso;
 function avisarRepetida(txt) {
