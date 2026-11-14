@@ -28,6 +28,8 @@
   .info { background:var(--cinza); border-radius:12px; padding:12px 14px; font-size:16px; line-height:1.4; text-align:center; }
   #instalar { background:#fef7e0; border:1px solid #f9ab00; text-align:left; }
   .barra { height:16px; background:var(--cinza); border-radius:8px; overflow:hidden; }
+  #previas { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  #previas img { width:100%; aspect-ratio:16/9; object-fit:cover; border-radius:10px; background:#ddd; }
   .barra > div { height:100%; width:0; background:var(--verde); transition:width .2s; }
 </style>
 </head>
@@ -48,8 +50,12 @@
   <input type="file" id="galeria" accept="image/*" multiple hidden>
   <div class="barra" id="barra" hidden><div></div></div>
   <div class="info" id="situacao">Tire as fotos com a câmera do celular. Depois toque no botão verde e escolha as fotos.</div>
-  <p class="sub" style="font-size:12px">versão 16</p>
+  <div id="previas"></div>
+  <p class="sub" style="font-size:12px">versão 17</p>
 </section>
+<div id="verFoto" style="position:fixed;inset:0;background:#000;display:none;z-index:20;align-items:center;justify-content:center">
+  <img id="fotoGrande" alt="" style="width:100%;height:100%;object-fit:contain">
+</div>
 <script src="app.js"></script>
 </body>
 </html>

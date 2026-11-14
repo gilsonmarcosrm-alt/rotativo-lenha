@@ -1,6 +1,6 @@
 // Guarda o app no celular para funcionar sem internet no deposito.
 // Com internet: sempre busca a versao nova. Sem internet: usa a guardada.
-const CACHE = 'contalenha-v16';
+const CACHE = 'contalenha-v17';
 const ARQUIVOS = ['./', 'index.html', 'app.js', 'manifest.json', 'img/logo.png', 'img/icone-180.png', 'img/icone-192.png', 'img/icone-512.png'];
 
 self.addEventListener('install', e => {

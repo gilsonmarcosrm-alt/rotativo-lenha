@@ -32,6 +32,15 @@ async function preparar(f) {
   return f.size < 8000000 ? f : null;
 }
 
+// previa deitada (horizontal) das fotos que estao indo
+function mostrarPrevia(blob) {
+  const box = $('previas'), im = document.createElement('img');
+  im.src = URL.createObjectURL(blob); im.alt = '';
+  im.onclick = () => { $('fotoGrande').src = im.src; $('verFoto').style.display = 'flex'; };
+  box.prepend(im);
+  while (box.children.length > 40) { const v = box.lastChild; URL.revokeObjectURL(v.src); v.remove(); }
+}
+
 async function enviar(arquivos) {
   const lista = [...arquivos]; $('galeria').value = '';
   if (!lista.length) return;
@@ -49,6 +58,7 @@ async function enviar(arquivos) {
     while (prox < lista.length) {
       const i = prox++;
       const corpo = await preparar(lista[i]);
+      if (corpo) mostrarPrevia(corpo);
       const info = btoa(unescape(encodeURIComponent(JSON.stringify(
         { id: i + 1, numero: null, letra: null, origem: 'galeria', usuario, data: new Date().toISOString() }))));
       let ok = false;
@@ -91,5 +101,6 @@ if ('serviceWorker' in navigator) {
 function iniciar() { $('ola').textContent = 'Olá, ' + nome.get(); mostrar('telaInicio'); }
 $('salvarNome').onclick = () => { const n = $('campoNome').value.trim(); if (!n) return; nome.set(n); iniciar(); };
 $('escolher').onclick = () => $('galeria').click();
+$('verFoto').onclick = () => { $('verFoto').style.display = 'none'; };
 $('galeria').onchange = e => enviar(e.target.files);
 if (nome.get()) iniciar(); else mostrar('telaNome');
