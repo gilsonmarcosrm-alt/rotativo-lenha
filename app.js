@@ -272,7 +272,9 @@ async function importarGaleria(arquivos) {
     c.width = c.height = 0;
     if (!b) throw new Error('foto vazia');
     await salvar({ numero: null, letra: null, origem: 'galeria', repetida: false, usuario: cfg.nome,
-      data: new Date().toISOString(), contagem: cfg.contagem, foto: await b.arrayBuffer(), enviado: false, env: 0 });
+      data: new Date().toISOString(), contagem: cfg.contagem, foto: await b.arrayBuffer(), enviado: false, env: 0,
+      // diagnostico das fotos repetidas (14/11): nome, tamanho e data do arquivo original da galeria
+      orig: f.name, tam: f.size, mod: f.lastModified });
   }
   async function trabalhador() {
     while (prox < lista.length) {
@@ -410,7 +412,7 @@ async function enviar() {
   async function trabalhador() {
     while (fila.length && !parou) {
       const id = fila.shift(), r = await pegarFoto(id); if (!r) { feitos++; continue; }
-      const info = { id: r.id, numero: r.numero, letra: r.letra, origem: r.origem, repetida: r.repetida, usuario: r.usuario, data: r.data };
+      const info = { id: r.id, numero: r.numero, letra: r.letra, origem: r.origem, repetida: r.repetida, usuario: r.usuario, data: r.data, orig: r.orig, tam: r.tam, mod: r.mod };
       let ok = false;
       for (let t = 0; t < 3 && !ok && !parou; t++) {
         await visivel(); // app fora da tela: espera voltar, sem contar como erro
