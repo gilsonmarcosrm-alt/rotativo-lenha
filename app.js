@@ -88,7 +88,7 @@ if ('serviceWorker' in navigator) {
   navigator.serviceWorker.addEventListener('controllerchange', () => { if (tinha && !window._r) { window._r = 1; location.reload(); } });
   navigator.serviceWorker.register('sw.js').then(r => r.update()).catch(() => {});
 }
-function iniciar() { $('ola').textContent = 'Olá, ' + nome.get(); mostrar('telaInicio'); mostrarInstalar(); }
+function iniciar() { $('ola').textContent = 'Olá, ' + nome.get(); mostrar('telaInicio'); }
 $('salvarNome').onclick = () => { const n = $('campoNome').value.trim(); if (!n) return; nome.set(n); iniciar(); };
 $('escolher').onclick = () => $('galeria').click();
 $('galeria').onchange = e => enviar(e.target.files);
