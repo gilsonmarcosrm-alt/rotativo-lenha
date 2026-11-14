@@ -36,7 +36,7 @@
   .barra > div { height:100%; width:0; background:var(--verde); transition:width .2s; }
   /* camera */
   #telaCamera { padding:0; background:#000; position:fixed; inset:0; }
-  #video { position:absolute; inset:0; width:100%; height:100%; object-fit:contain; }
+  #video { position:absolute; left:50%; top:45%; transform:translate(-50%,-50%); width:min(100vw, 160vh); aspect-ratio:16/9; height:auto; object-fit:cover; background:#111; }
   #flash { position:absolute; inset:0; background:#fff; opacity:0; pointer-events:none; transition:opacity .15s; }
   #flash.on { opacity:.6; transition:none; }
   #instalar { background:#fef7e0; border:1px solid #f9ab00; }
@@ -47,16 +47,23 @@
   #alerta.mostra { display:flex; }
   #alerta b { font-size:34px; } #alerta span { font-size:26px; }
   .rodape { position:absolute; left:0; right:0; bottom:0; padding:16px 16px calc(20px + env(safe-area-inset-bottom)); display:flex; align-items:center; justify-content:space-between; }
-  #disparo { width:86px; height:86px; border-radius:50%; border:6px solid #fff; background:rgba(255,255,255,.35); }
+  #disparo { flex-shrink:0; width:86px; height:86px; border-radius:50%; border:6px solid #fff; background:rgba(255,255,255,.35); }
   #disparo:active { background:#fff; }
   .mini { color:#fff; background:rgba(0,0,0,.5); border:0; border-radius:12px; font-size:17px; padding:12px 14px; min-width:96px; }
-  #contaCam { color:#fff; font-size:20px; font-weight:700; min-width:150px; text-align:center; }
+  #contaCam { color:#fff; font-size:20px; font-weight:700; min-width:60px; text-align:center; }
   /* digitar */
   #digitar { position:absolute; inset:0; background:#fff; z-index:6; display:none; flex-direction:column; padding:calc(16px + env(safe-area-inset-top)) 16px calc(16px + env(safe-area-inset-bottom)); gap:12px; }
   #digitar.mostra { display:flex; }
   #digitar img { width:100%; max-height:28vh; object-fit:contain; border-radius:10px; background:#000; }
   .linha { display:flex; gap:10px; } .linha input { text-align:center; font-size:34px; font-weight:800; }
   /* lista */
+  #lista { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .foto { position:relative; border-radius:10px; overflow:hidden; border:3px solid transparent; }
+  .foto img { display:block; width:100%; aspect-ratio:16/9; object-fit:cover; background:#ddd; }
+  .foto.marcada { border-color:#d93025; }
+  .foto.marcada::after { content:'✓'; position:absolute; top:6px; right:6px; width:30px; height:30px; border-radius:50%; background:#d93025; color:#fff; font-weight:800; display:flex; align-items:center; justify-content:center; }
+  .mini2 { flex:1; border:0; border-radius:12px; font-size:17px; font-weight:700; padding:14px 8px; background:var(--cinza); color:var(--texto); }
+  .mini2.verm { background:var(--vermelho); color:#fff; } .mini2:disabled { opacity:.4; }
   .item { display:flex; align-items:center; gap:10px; padding:8px; border-bottom:1px solid #eee; }
   .item img { width:160px; height:90px; object-fit:cover; border-radius:6px; background:#ddd; }
   .item b { font-size:22px; min-width:96px; } .item .tag { font-size:13px; padding:2px 8px; border-radius:10px; background:var(--cinza); }
@@ -87,9 +94,9 @@
   <div class="barra" id="barra" hidden><div></div></div>
   <div class="info" id="situacao"></div>
   <div class="espaco"></div>
-  <button class="btn cinza" id="verLista">Ver contados</button>
-  <button class="btn vermelho" id="apagar" disabled>Apagar contagem</button>
-  <p class="sub" style="font-size:12px">versão 19</p>
+  <button class="btn cinza" id="verLista">🖼️ Ver fotos</button>
+  <button class="btn vermelho" id="apagar" disabled>🗑 Apagar todas as fotos</button>
+  <p class="sub" style="font-size:12px">versão 21</p>
 </section>
 
 <!-- 3. Camera -->
@@ -110,8 +117,13 @@
 
 <!-- 4. Lista -->
 <section id="telaLista" class="tela">
-  <h1>Contados</h1>
+  <h1>Fotos</h1>
   <p class="sub" id="resumoLista"></p>
+  <div style="display:flex;gap:8px;position:sticky;top:0;background:#fff;padding:6px 0;z-index:3">
+    <button class="mini2" id="selecionar">Selecionar</button>
+    <button class="mini2" id="tudo" hidden>Selecionar tudo</button>
+    <button class="mini2 verm" id="apagarSel" hidden>🗑 Apagar (0)</button>
+  </div>
   <div id="lista"></div>
   <button class="btn cinza" id="voltarLista">Voltar</button>
 </section>

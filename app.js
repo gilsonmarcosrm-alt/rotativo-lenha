@@ -59,7 +59,7 @@ async function atualizarInicio() {
   const pend = regs.filter(r => !r.enviado).length;
   const enviados = regs.length - pend;
   $('enviar').disabled = pend === 0;
-  $('apagar').disabled = !(regs.length && pend === 0);
+  $('apagar').disabled = !regs.length;
   let s;
   if (!regs.length) s = 'Nenhuma foto ainda. Toque em CONTAR para começar.';
   else if (pend) s = `${regs.length} fotos guardadas no app. ${pend} ainda não enviadas. Envie quando estiver no Wi-Fi do escritório.`;
@@ -155,12 +155,16 @@ function fecharCamera() {
   fluxo = null; mostrar('telaInicio'); atualizarInicio();
 }
 // foto da tela inteira, reduzida para enviar rapido
+// a foto sai igual ao quadro deitado (16:9) que aparece na tela
 function capturarQuadro() {
-  const v = $('video');
-  const s = Math.min(1, 1400 / Math.max(v.videoWidth, v.videoHeight));
+  const v = $('video'), vw = v.videoWidth, vh = v.videoHeight, alvo = 16 / 9;
+  let sw = vw, sh = vh;
+  if (vw / vh < alvo) sh = Math.round(vw / alvo); else sw = Math.round(vh * alvo);
+  const sx = Math.round((vw - sw) / 2), sy = Math.round((vh - sh) / 2);
+  const s = Math.min(1, 1400 / sw);
   const c = document.createElement('canvas');
-  c.width = Math.round(v.videoWidth * s); c.height = Math.round(v.videoHeight * s);
-  c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+  c.width = Math.round(sw * s); c.height = Math.round(sh * s);
+  c.getContext('2d').drawImage(v, sx, sy, sw, sh, 0, 0, c.width, c.height);
   return c;
 }
 const paraBlob = c => new Promise(ok => c.toBlob(ok, 'image/jpeg', 0.72));
@@ -176,8 +180,6 @@ async function disparar() {
   if (!$('video').videoWidth) return;
   let c = capturarQuadro();
   // celular deitado: a tela nao gira (igual a camera do celular), a foto sai deitada
-  // toda foto e tirada deitada: se saiu em pe, deita
-  if (c.height > c.width) c = girar(c, Math.abs(gravX) > 6 && gravX < 0 ? 1 : -1);
   const f = $('flash'); f.classList.add('on'); setTimeout(() => f.classList.remove('on'), 60);
   vibrar(30);
   fotosTela++; $('contaCam').textContent = fotosTela;
@@ -335,26 +337,40 @@ async function enviar() {
 }
 
 async function apagarTudo() {
-  if (!confirm('Apagar todas as fotos desta contagem do celular? Faça isso só depois de receber o Excel.')) return;
+  const regs = await todos(), pend = regs.filter(r => !r.enviado).length;
+  if (!confirm(pend ? `Apagar todas as ${regs.length} fotos do app? ${pend} ainda não foram enviadas.` : `Apagar todas as ${regs.length} fotos do app?`)) return;
   await limpar(); lidos = null; novaContagem(); atualizarInicio();
 }
 
-// ---------- lista ----------
+// ---------- lista: ver, selecionar e apagar ----------
+const apagarIds = ids => tx('readwrite', st => { ids.forEach(id => st.delete(id)); });
+let escolhendo = false; const marcadas = new Set();
+function atualizarBarraLista() {
+  $('selecionar').textContent = escolhendo ? 'Cancelar' : 'Selecionar';
+  $('tudo').hidden = $('apagarSel').hidden = !escolhendo;
+  $('apagarSel').textContent = `🗑 Apagar (${marcadas.size})`;
+  $('apagarSel').disabled = !marcadas.size;
+  document.querySelectorAll('#lista .foto').forEach(d => d.classList.toggle('marcada', marcadas.has(Number(d.dataset.id))));
+}
 async function verLista() {
   const regs = (await todos()).reverse();
-  const unicos = new Set(regs.filter(r => r.numero).map(chave)).size;
   $('resumoLista').textContent = `${regs.length} fotos no app`;
-  const l = $('lista'); l.innerHTML = '';
-  for (const r of regs.slice(0, 300)) {
-    const d = document.createElement('div'); d.className = 'item';
-    const img = document.createElement('img'); img.src = URL.createObjectURL(fotoBlob(r)); img.alt = '';
-    d.onclick = () => abrirFoto(img.src);
-    const b = document.createElement('b'); b.textContent = '';
-    d.append(img, b);
-    if (r.repetida) { const t = document.createElement('span'); t.className = 'tag rep'; t.textContent = 'repetida'; d.append(t); }
-    l.append(d);
+  const l = $('lista'); l.querySelectorAll('img').forEach(im => URL.revokeObjectURL(im.src)); l.innerHTML = '';
+  escolhendo = false; marcadas.clear();
+  for (const r of regs.slice(0, 500)) {
+    const d = document.createElement('div'); d.className = 'foto'; d.dataset.id = r.id;
+    const img = document.createElement('img'); img.src = URL.createObjectURL(fotoBlob(r)); img.alt = ''; img.loading = 'lazy';
+    d.onclick = () => {
+      if (!escolhendo) return abrirFoto(img.src);
+      marcadas.has(r.id) ? marcadas.delete(r.id) : marcadas.add(r.id); atualizarBarraLista();
+    };
+    d.append(img); l.append(d);
   }
-  mostrar('telaLista');
+  atualizarBarraLista(); mostrar('telaLista');
+}
+async function apagarMarcadas() {
+  if (!marcadas.size || !confirm(`Apagar ${marcadas.size} foto(s) do app?`)) return;
+  await apagarIds([...marcadas]); await atualizarInicio(); await verLista();
 }
 
 // ---------- aviso para instalar o icone ----------
@@ -396,6 +412,9 @@ function mostrarInstalar() {
   $('apagar').onclick = apagarTudo;
   $('verLista').onclick = verLista;
   $('voltarLista').onclick = () => mostrar('telaInicio');
+  $('selecionar').onclick = () => { escolhendo = !escolhendo; marcadas.clear(); atualizarBarraLista(); };
+  $('tudo').onclick = () => { document.querySelectorAll('#lista .foto').forEach(d => marcadas.add(Number(d.dataset.id))); atualizarBarraLista(); };
+  $('apagarSel').onclick = apagarMarcadas;
   if (cfg.nome) { mostrar('telaInicio'); atualizarInicio(); iniciarOCR(); } else mostrar('telaNome');
 })();
 
