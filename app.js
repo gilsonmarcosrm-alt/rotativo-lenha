@@ -73,7 +73,8 @@ async function atualizarInicio() {
   $('ola').textContent = 'Olá, ' + cfg.nome;
   const pend = await contarPendentes();
   const enviados = total - pend;
-  $('enviar').disabled = pend === 0;
+  $('enviar').disabled = !total || enviando;
+  $('enviar').textContent = total && !pend ? 'Enviar fotos de novo' : 'Enviar fotos';
   $('apagar').disabled = !total;
   let s;
   if (!total) s = 'Nenhuma foto ainda. Toque em CONTAR para começar.';
@@ -251,7 +252,9 @@ async function processarFila() { fila.length = 0; return; // leitura fica no PC
 async function importarGaleria(arquivos) {
   const lista = [...arquivos]; $('galeria').value = ''; if (!lista.length) return;
   const barra = $('barra'); barra.hidden = false; $('btnGaleria').disabled = true;
-  let feitos = 0, prox = 0; const t0 = Date.now(), base = Number($('total').textContent) || 0;
+  let feitos = 0, prox = 0, iguais = 0; const t0 = Date.now(), base = Number($('total').textContent) || 0;
+  const vistas = lerVistas(), existentes = new Set(await todosIds());
+  const trava = await manterTelaAcesa();
   async function trabalhador() {
     while (prox < lista.length) {
       const f = lista[prox++];
@@ -261,8 +264,12 @@ async function importarGaleria(arquivos) {
         const c = document.createElement('canvas'); c.width = Math.round(w * s); c.height = Math.round(h * s);
         c.getContext('2d').drawImage(im, 0, 0, c.width, c.height); if (im.close) im.close();
         const b = await new Promise(ok => c.toBlob(ok, 'image/jpeg', 0.6));
-        await salvar({ numero: null, letra: null, origem: 'galeria', repetida: false, usuario: cfg.nome,
-          data: new Date().toISOString(), contagem: cfg.contagem, foto: await b.arrayBuffer(), enviado: false, env: 0 });
+        const bytes = await b.arrayBuffer(), k = await impressao(bytes);
+        if (k && vistas.has(k) && existentes.has(vistas.get(k))) { iguais++; throw 0; } // essa foto ja esta no app
+        if (k) vistas.set(k, -1);
+        const novoId = await salvar({ numero: null, letra: null, origem: 'galeria', repetida: false, usuario: cfg.nome,
+          data: new Date().toISOString(), contagem: cfg.contagem, foto: bytes, enviado: false, env: 0 });
+        if (k) { vistas.set(k, novoId); existentes.add(novoId); }
       } catch (e) {}
       feitos++; barra.firstElementChild.style.width = (100 * feitos / lista.length) + '%';
       $('total').textContent = base + feitos;
@@ -271,9 +278,20 @@ async function importarGaleria(arquivos) {
     }
   }
   await Promise.all(Array.from({ length: 4 }, trabalhador));
+  gravarVistas(vistas); soltar(trava);
   barra.hidden = true; $('btnGaleria').disabled = false;
   await atualizarInicio();
+  if (iguais) alert(`${iguais} fotos já estavam no app e não foram trazidas de novo.`);
 }
+// impressao digital da foto: a mesma foto da galeria gera sempre os mesmos bytes
+async function impressao(bytes) {
+  try { return [...new Uint8Array(await crypto.subtle.digest('SHA-1', bytes))].map(x => x.toString(16).padStart(2, '0')).join(''); } catch (e) { return null; }
+}
+function lerVistas() { try { return new Map(JSON.parse(localStorage.getItem('vistas') || '[]')); } catch (e) { return new Map(); } }
+function gravarVistas(m) { try { localStorage.setItem('vistas', JSON.stringify([...m].filter(([, id]) => id > 0))); } catch (e) {} }
+// tela acesa enquanto traz ou envia fotos (o iPhone pausa tudo quando a tela apaga)
+async function manterTelaAcesa() { try { return await navigator.wakeLock.request('screen'); } catch (e) { return null; } }
+function soltar(t) { try { t && t.release(); } catch (e) {} }
 let tAviso;
 function avisarRepetida(txt) {
   $('alertaTxt').textContent = txt; $('alerta').classList.add('mostra');
@@ -286,7 +304,14 @@ function mostrarLido(txt) {
 }
 
 // ---------- envio para o PC ----------
+let enviando = false;
+// o envio foi interrompido (app fechado ou travou): ao abrir de novo, continua sozinho
+async function retomarEnvio() {
+  let f; try { f = localStorage.getItem('enviando'); } catch (e) {}
+  if (f && !enviando && navigator.onLine !== false && await contarPendentes()) { $('situacao').textContent = 'Continuando o envio que ficou pela metade...'; enviar(); }
+}
 async function enviar() {
+  if (enviando) return;
   let destino;
   try { destino = await (await fetch('url.json?t=' + Date.now(), { cache: 'no-store' })).json(); }
   catch (e) { alert('Sem internet. Conecte no Wi-Fi ou nos dados e tente de novo.'); return; }
@@ -295,7 +320,17 @@ async function enviar() {
     if (!ping.ok) throw 0;
   } catch (e) { alert('O PC de casa não respondeu. Ele precisa estar ligado. Nenhuma foto foi apagada.'); return; }
 
-  const pend = await idsPendentes();
+  let pend = await idsPendentes();
+  if (!pend.length) {
+    const tudo = await todosIds();
+    if (!tudo.length) return;
+    if (!confirm(`Todas as ${tudo.length} fotos já foram enviadas. Enviar todas de novo?`)) return;
+    await tx('readwrite', s => { s.clear(); }, 'enviadas'); pend = tudo;
+  }
+  enviando = true; try { localStorage.setItem('enviando', '1'); } catch (e) {}
+  let trava = await manterTelaAcesa();
+  const reacender = async () => { if (document.visibilityState === 'visible' && enviando) { soltar(trava); trava = await manterTelaAcesa(); } };
+  document.addEventListener('visibilitychange', reacender);
   const barra = $('barra'); barra.hidden = false; $('enviar').disabled = true;
   let feitos = 0, falhas = 0, seguidas = 0, parou = false, recuperando = null, pulou = 0; const voltas = new Map();
   const fila = pend.slice();
@@ -349,6 +384,8 @@ async function enviar() {
         body: JSON.stringify({ contagem: cfg.contagem, usuario: cfg.nome }) });
     } catch (e) {}
   }
+  enviando = false; soltar(trava); document.removeEventListener('visibilitychange', reacender);
+  if (!falhas) try { localStorage.removeItem('enviando'); } catch (e) {}
   barra.hidden = true; await atualizarInicio();
   alert(falhas ? (parou ? `O PC de casa parou de responder. ${falhas} fotos ficaram para depois. Toque em Enviar de novo daqui a 1 minuto (as já enviadas não vão de novo).` : `${falhas} fotos não foram enviadas. Toque em Enviar de novo.`) : 'Fotos enviadas! O Excel chega no seu e-mail em alguns minutos.');
 }
@@ -356,7 +393,7 @@ async function enviar() {
 async function apagarTudo() {
   const total = await contar(), pend = await contarPendentes();
   if (!confirm(pend ? `Apagar todas as ${total} fotos do app? ${pend} ainda não foram enviadas.` : `Apagar todas as ${total} fotos do app?`)) return;
-  await limpar(); lidos = null; novaContagem(); atualizarInicio();
+  await limpar(); lidos = null; try { localStorage.removeItem('vistas'); localStorage.removeItem('enviando'); } catch (e) {} novaContagem(); atualizarInicio();
 }
 
 // ---------- lista: ver, selecionar e apagar ----------
@@ -450,6 +487,8 @@ function mostrarInstalar() {
   $('maisFotos').onclick = maisFotos;
   $('apagarSel').onclick = apagarMarcadas;
   if (cfg.nome) { mostrar('telaInicio'); atualizarInicio(); iniciarOCR(); } else mostrar('telaNome');
+  if (cfg.nome) setTimeout(retomarEnvio, 1500);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && cfg.nome) retomarEnvio(); });
 })();
 
 // usado nos testes: processa uma imagem como se viesse da camera
