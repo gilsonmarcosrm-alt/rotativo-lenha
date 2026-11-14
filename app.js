@@ -379,19 +379,27 @@ function adicionarFoto(r) {
   };
   d.append(img); $('lista').append(d);
 }
+let carregando = false;
 async function maisFotos() {
-  const parte = idsLista.slice(mostradas, mostradas + 40); mostradas += parte.length;
+  if (carregando || mostradas >= idsLista.length) return; carregando = true;
+  const parte = idsLista.slice(mostradas, mostradas + 60); mostradas += parte.length;
   for (const id of parte) { const r = await pegarFoto(id); if (r) adicionarFoto(r); }
   $('maisFotos').hidden = mostradas >= idsLista.length;
   $('maisFotos').textContent = `Mostrar mais (${idsLista.length - mostradas} restantes)`;
-  atualizarBarraLista();
+  atualizarBarraLista(); carregando = false;
+  // ainda perto do fim da tela: ja carrega a proxima parte
+  if (!$('maisFotos').hidden && $('maisFotos').getBoundingClientRect().top < innerHeight * 3) maisFotos();
 }
+// rolagem continua: chegando perto do fim, carrega mais fotos sozinho
+function perto() { const b = document.getElementById('maisFotos'); if (!b.hidden && b.getBoundingClientRect().top < innerHeight * 3) maisFotos(); }
+addEventListener('scroll', perto, { passive: true });
+if ('IntersectionObserver' in window) new IntersectionObserver(es => { if (es.some(e => e.isIntersecting)) maisFotos(); }, { rootMargin: '0px 0px 1500px 0px' }).observe(document.getElementById('maisFotos'));
 async function verLista() {
-  idsLista = (await todosIds()).reverse(); mostradas = 0;
+  idsLista = (await todosIds()).reverse(); mostradas = 0; carregando = false;
   $('resumoLista').textContent = `${idsLista.length} fotos no app`;
   const l = $('lista'); l.querySelectorAll('img').forEach(im => URL.revokeObjectURL(im.src)); l.innerHTML = '';
   escolhendo = false; marcadas.clear();
-  mostrar('telaLista'); await maisFotos();
+  mostrar('telaLista'); scrollTo(0, 0); await maisFotos();
 }
 async function apagarMarcadas() {
   if (!marcadas.size || !confirm(`Apagar ${marcadas.size} foto(s) do app?`)) return;
