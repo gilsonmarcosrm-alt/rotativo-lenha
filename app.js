@@ -5,23 +5,24 @@ const VERSAO = '1';
 
 // ---------- armazenamento (fotos ficam so dentro do app) ----------
 let db;
+// abrir o banco nunca mexe nas fotos guardadas (com 1.400 fotos o iPhone nao aguenta)
 function abrirBanco() {
   return new Promise((ok, erro) => {
-    const r = indexedDB.open('contalenha', 2);
+    const r = indexedDB.open('contalenha', 3);
     r.onupgradeneeded = e => {
-      const st = e.oldVersion < 1 ? r.result.createObjectStore('fotos', { keyPath: 'id', autoIncrement: true }) : r.transaction.objectStore('fotos');
-      if (!st.indexNames.contains('env')) st.createIndex('env', 'env');
-      // fotos antigas: marca uma por uma (sem carregar todas juntas)
-      st.openCursor().onsuccess = ev => { const c = ev.target.result; if (!c) return;
-        const v = c.value; if (v.env === undefined) { v.env = v.enviado ? 1 : 0; c.update(v); } c.continue(); };
+      const d = r.result;
+      const st = d.objectStoreNames.contains('fotos') ? r.transaction.objectStore('fotos') : d.createObjectStore('fotos', { keyPath: 'id', autoIncrement: true });
+      if (st.indexNames.contains('env')) st.deleteIndex('env');
+      if (!d.objectStoreNames.contains('enviadas')) d.createObjectStore('enviadas');
     };
     r.onsuccess = () => { db = r.result; ok(); };
     r.onerror = () => erro(r.error);
   });
 }
-function tx(modo, fn) {
+function tx(modo, fn, lojas = 'fotos') {
   return new Promise((ok, erro) => {
-    const t = db.transaction('fotos', modo), s = t.objectStore('fotos');
+    const t = db.transaction(lojas, modo);
+    const s = Array.isArray(lojas) ? lojas.map(n => t.objectStore(n)) : t.objectStore(lojas);
     let res; const p = fn(s); if (p) p.onsuccess = () => { res = p.result; };
     t.oncomplete = () => ok(res); t.onerror = () => erro(t.error);
   });
@@ -29,13 +30,15 @@ function tx(modo, fn) {
 const salvar = reg => tx('readwrite', s => s.add(reg));
 const atualizar = reg => tx('readwrite', s => s.put(reg));
 const todos = () => tx('readonly', s => s.getAll());
-// contagens leves: nunca carregam as fotos
+// contagens leves: so mexem nos numeros, nunca carregam as fotos
 const contar = () => tx('readonly', s => s.count());
-const contarPendentes = () => tx('readonly', s => s.index('env').count(0));
-const idsPendentes = () => tx('readonly', s => s.index('env').getAllKeys(0));
 const todosIds = () => tx('readonly', s => s.getAllKeys());
+const idsEnviadas = () => tx('readonly', s => s.getAllKeys(), 'enviadas');
+async function idsPendentes() { const env = new Set(await idsEnviadas()); return (await todosIds()).filter(id => !env.has(id)); }
+async function contarPendentes() { return (await idsPendentes()).length; }
+const marcarEnviada = id => tx('readwrite', s => s.put(1, id), 'enviadas');
 const pegarFoto = id => tx('readonly', s => s.get(id));
-const limpar = () => tx('readwrite', s => s.clear());
+const limpar = () => tx('readwrite', ([f, e]) => { f.clear(); e.clear(); }, ['fotos', 'enviadas']);
 
 const cfg = {
   get nome() { try { return localStorage.getItem('nome') || ''; } catch (e) { return ''; } },
@@ -309,7 +312,7 @@ async function enviar() {
           ok = resp.ok;
         } catch (e) {}
       }
-      if (ok) { r.enviado = true; r.env = 1; await atualizar(r); } else falhas++;
+      if (ok) await marcarEnviada(r.id); else falhas++;
       feitos++; barra.firstElementChild.style.width = (100 * feitos / pend.length) + '%';
       $('situacao').textContent = `Enviando ${feitos} de ${pend.length} (${Math.round(100 * feitos / pend.length)}%)...`;
     }
@@ -332,7 +335,7 @@ async function apagarTudo() {
 }
 
 // ---------- lista: ver, selecionar e apagar ----------
-const apagarIds = ids => tx('readwrite', st => { ids.forEach(id => st.delete(id)); });
+const apagarIds = ids => tx('readwrite', ([f, e]) => { ids.forEach(id => { f.delete(id); e.delete(id); }); }, ['fotos', 'enviadas']);
 let escolhendo = false; const marcadas = new Set();
 function atualizarBarraLista() {
   $('selecionar').textContent = escolhendo ? 'Cancelar' : 'Selecionar';
