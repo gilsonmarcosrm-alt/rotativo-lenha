@@ -7,8 +7,14 @@ const VERSAO = '1';
 let db;
 function abrirBanco() {
   return new Promise((ok, erro) => {
-    const r = indexedDB.open('contalenha', 1);
-    r.onupgradeneeded = () => r.result.createObjectStore('fotos', { keyPath: 'id', autoIncrement: true });
+    const r = indexedDB.open('contalenha', 2);
+    r.onupgradeneeded = e => {
+      const st = e.oldVersion < 1 ? r.result.createObjectStore('fotos', { keyPath: 'id', autoIncrement: true }) : r.transaction.objectStore('fotos');
+      if (!st.indexNames.contains('env')) st.createIndex('env', 'env');
+      // fotos antigas: marca uma por uma (sem carregar todas juntas)
+      st.openCursor().onsuccess = ev => { const c = ev.target.result; if (!c) return;
+        const v = c.value; if (v.env === undefined) { v.env = v.enviado ? 1 : 0; c.update(v); } c.continue(); };
+    };
     r.onsuccess = () => { db = r.result; ok(); };
     r.onerror = () => erro(r.error);
   });
@@ -23,6 +29,12 @@ function tx(modo, fn) {
 const salvar = reg => tx('readwrite', s => s.add(reg));
 const atualizar = reg => tx('readwrite', s => s.put(reg));
 const todos = () => tx('readonly', s => s.getAll());
+// contagens leves: nunca carregam as fotos
+const contar = () => tx('readonly', s => s.count());
+const contarPendentes = () => tx('readonly', s => s.index('env').count(0));
+const idsPendentes = () => tx('readonly', s => s.index('env').getAllKeys(0));
+const todosIds = () => tx('readonly', s => s.getAllKeys());
+const pegarFoto = id => tx('readonly', s => s.get(id));
 const limpar = () => tx('readwrite', s => s.clear());
 
 const cfg = {
@@ -52,16 +64,16 @@ function mostrar(id) {
 const chave = r => r.numero + r.letra;
 
 async function atualizarInicio() {
-  const regs = await todos();
-  $('total').textContent = regs.length;
-  fotosTela = regs.length; $('contaCam').textContent = regs.length;
+  const total = await contar(), regs = { length: total };
+  $('total').textContent = total;
+  fotosTela = total; $('contaCam').textContent = total;
   $('ola').textContent = 'Olá, ' + cfg.nome;
-  const pend = regs.filter(r => !r.enviado).length;
-  const enviados = regs.length - pend;
+  const pend = await contarPendentes();
+  const enviados = total - pend;
   $('enviar').disabled = pend === 0;
-  $('apagar').disabled = !regs.length;
+  $('apagar').disabled = !total;
   let s;
-  if (!regs.length) s = 'Nenhuma foto ainda. Toque em CONTAR para começar.';
+  if (!total) s = 'Nenhuma foto ainda. Toque em CONTAR para começar.';
   else if (pend) s = `${regs.length} fotos guardadas no app. ${pend} ainda não enviadas. Envie quando estiver no Wi-Fi do escritório.`;
   else s = `Tudo enviado (${enviados} fotos). Quando o Excel chegar no e-mail, toque em Apagar contagem.`;
   $('situacao').textContent = s;
@@ -186,7 +198,7 @@ async function disparar() {
   const m = $('miniatura'); if (m._url) URL.revokeObjectURL(m._url);
   m._url = URL.createObjectURL(blob); m.src = m._url; m.style.visibility = 'visible';
   const id = await salvar({ numero: null, letra: null, origem: 'auto', repetida: false, usuario: cfg.nome,
-    data: new Date().toISOString(), contagem: cfg.contagem, foto: await blob.arrayBuffer(), enviado: false });
+    data: new Date().toISOString(), contagem: cfg.contagem, foto: await blob.arrayBuffer(), enviado: false, env: 0 });
   fila.push({ id, canvas: c });
   processarFila();
 }
@@ -247,7 +259,7 @@ async function importarGaleria(arquivos) {
         c.getContext('2d').drawImage(im, 0, 0, c.width, c.height); if (im.close) im.close();
         const b = await new Promise(ok => c.toBlob(ok, 'image/jpeg', 0.7));
         await salvar({ numero: null, letra: null, origem: 'galeria', repetida: false, usuario: cfg.nome,
-          data: new Date().toISOString(), contagem: cfg.contagem, foto: await b.arrayBuffer(), enviado: false });
+          data: new Date().toISOString(), contagem: cfg.contagem, foto: await b.arrayBuffer(), enviado: false, env: 0 });
       } catch (e) {}
       feitos++; barra.firstElementChild.style.width = (100 * feitos / lista.length) + '%';
       $('total').textContent = base + feitos;
@@ -280,13 +292,13 @@ async function enviar() {
     if (!ping.ok) throw 0;
   } catch (e) { alert('O PC que recebe as fotos não respondeu. Ele precisa estar ligado. Nada foi apagado.'); return; }
 
-  const regs = await todos(), pend = regs.filter(r => !r.enviado);
+  const pend = await idsPendentes();
   const barra = $('barra'); barra.hidden = false; $('enviar').disabled = true;
   let feitos = 0, falhas = 0;
   const fila = pend.slice();
   async function trabalhador() {
     while (fila.length) {
-      const r = fila.shift();
+      const r = await pegarFoto(fila.shift()); if (!r) { feitos++; continue; }
       const info = { id: r.id, numero: r.numero, letra: r.letra, origem: r.origem, repetida: r.repetida, usuario: r.usuario, data: r.data };
       let ok = false;
       for (let t = 0; t < 3 && !ok; t++) {
@@ -297,7 +309,7 @@ async function enviar() {
           ok = resp.ok;
         } catch (e) {}
       }
-      if (ok) { r.enviado = true; await atualizar(r); } else falhas++;
+      if (ok) { r.enviado = true; r.env = 1; await atualizar(r); } else falhas++;
       feitos++; barra.firstElementChild.style.width = (100 * feitos / pend.length) + '%';
       $('situacao').textContent = `Enviando ${feitos} de ${pend.length} (${Math.round(100 * feitos / pend.length)}%)...`;
     }
@@ -314,8 +326,8 @@ async function enviar() {
 }
 
 async function apagarTudo() {
-  const regs = await todos(), pend = regs.filter(r => !r.enviado).length;
-  if (!confirm(pend ? `Apagar todas as ${regs.length} fotos do app? ${pend} ainda não foram enviadas.` : `Apagar todas as ${regs.length} fotos do app?`)) return;
+  const total = await contar(), pend = await contarPendentes();
+  if (!confirm(pend ? `Apagar todas as ${total} fotos do app? ${pend} ainda não foram enviadas.` : `Apagar todas as ${total} fotos do app?`)) return;
   await limpar(); lidos = null; novaContagem(); atualizarInicio();
 }
 
@@ -329,21 +341,29 @@ function atualizarBarraLista() {
   $('apagarSel').disabled = !marcadas.size;
   document.querySelectorAll('#lista .foto').forEach(d => d.classList.toggle('marcada', marcadas.has(Number(d.dataset.id))));
 }
+let idsLista = [], mostradas = 0;
+function adicionarFoto(r) {
+  const d = document.createElement('div'); d.className = 'foto'; d.dataset.id = r.id;
+  const img = document.createElement('img'); img.src = URL.createObjectURL(fotoBlob(r)); img.alt = '';
+  d.onclick = () => {
+    if (!escolhendo) return abrirFoto(img.src);
+    marcadas.has(r.id) ? marcadas.delete(r.id) : marcadas.add(r.id); atualizarBarraLista();
+  };
+  d.append(img); $('lista').append(d);
+}
+async function maisFotos() {
+  const parte = idsLista.slice(mostradas, mostradas + 40); mostradas += parte.length;
+  for (const id of parte) { const r = await pegarFoto(id); if (r) adicionarFoto(r); }
+  $('maisFotos').hidden = mostradas >= idsLista.length;
+  $('maisFotos').textContent = `Mostrar mais (${idsLista.length - mostradas} restantes)`;
+  atualizarBarraLista();
+}
 async function verLista() {
-  const regs = (await todos()).reverse();
-  $('resumoLista').textContent = `${regs.length} fotos no app`;
+  idsLista = (await todosIds()).reverse(); mostradas = 0;
+  $('resumoLista').textContent = `${idsLista.length} fotos no app`;
   const l = $('lista'); l.querySelectorAll('img').forEach(im => URL.revokeObjectURL(im.src)); l.innerHTML = '';
   escolhendo = false; marcadas.clear();
-  for (const r of regs.slice(0, 500)) {
-    const d = document.createElement('div'); d.className = 'foto'; d.dataset.id = r.id;
-    const img = document.createElement('img'); img.src = URL.createObjectURL(fotoBlob(r)); img.alt = ''; img.loading = 'lazy';
-    d.onclick = () => {
-      if (!escolhendo) return abrirFoto(img.src);
-      marcadas.has(r.id) ? marcadas.delete(r.id) : marcadas.add(r.id); atualizarBarraLista();
-    };
-    d.append(img); l.append(d);
-  }
-  atualizarBarraLista(); mostrar('telaLista');
+  mostrar('telaLista'); await maisFotos();
 }
 async function apagarMarcadas() {
   if (!marcadas.size || !confirm(`Apagar ${marcadas.size} foto(s) do app?`)) return;
@@ -390,7 +410,8 @@ function mostrarInstalar() {
   $('verLista').onclick = verLista;
   $('voltarLista').onclick = () => mostrar('telaInicio');
   $('selecionar').onclick = () => { escolhendo = !escolhendo; marcadas.clear(); atualizarBarraLista(); };
-  $('tudo').onclick = () => { document.querySelectorAll('#lista .foto').forEach(d => marcadas.add(Number(d.dataset.id))); atualizarBarraLista(); };
+  $('tudo').onclick = () => { idsLista.forEach(id => marcadas.add(id)); atualizarBarraLista(); };
+  $('maisFotos').onclick = maisFotos;
   $('apagarSel').onclick = apagarMarcadas;
   if (cfg.nome) { mostrar('telaInicio'); atualizarInicio(); iniciarOCR(); } else mostrar('telaNome');
 })();
