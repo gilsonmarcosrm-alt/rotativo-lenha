@@ -79,7 +79,7 @@ async function atualizarInicio() {
   let s;
   if (!total) s = 'Nenhuma foto ainda. Toque em CONTAR para começar.';
   else if (pend) s = `${regs.length} fotos guardadas no app. ${pend} ainda não enviadas. Toque em Enviar fotos quando tiver internet.`;
-  else s = `Tudo enviado (${enviados} fotos). Quando a lista chegar no seu e-mail, pode apagar as fotos.`;
+  else s = `Tudo enviado (${enviados} fotos). O app apaga essas fotos sozinho 1 hora depois do envio.`;
   $('situacao').textContent = s;
 }
 
@@ -323,6 +323,15 @@ function mostrarLido(txt) {
 
 // ---------- envio para o PC ----------
 let enviando = false;
+// 1 hora depois de tudo enviado, o app apaga as fotos e comeca uma contagem nova (nao mistura contagens)
+async function limparEnviadas() {
+  let t; try { t = Number(localStorage.getItem('tudoEnviadoEm')); } catch (e) {}
+  if (!t || Date.now() - t < 3600000 || enviando || importando) return;
+  if (await contarPendentes()) return; // tem foto nova ainda nao enviada: nao apaga nada
+  await limpar(); lidos = null; novaContagem();
+  try { ['tudoEnviadoEm', 'enviando', 'importadas'].forEach(k => localStorage.removeItem(k)); } catch (e) {}
+  await atualizarInicio();
+}
 // o envio foi interrompido (app fechado ou travou): ao abrir de novo, continua sozinho
 async function retomarEnvio() {
   let f; try { f = localStorage.getItem('enviando'); } catch (e) {}
@@ -406,7 +415,7 @@ async function enviar() {
     } catch (e) {}
   }
   enviando = false; soltar(trava); document.removeEventListener('visibilitychange', reacender);
-  if (!falhas) try { localStorage.removeItem('enviando'); localStorage.removeItem('importadas'); } catch (e) {}
+  if (!falhas) try { localStorage.removeItem('enviando'); localStorage.setItem('tudoEnviadoEm', String(Date.now())); } catch (e) {}
   barra.hidden = true; await atualizarInicio();
   if (recarregarDepois) setTimeout(() => location.reload(), 3000);
   alert(falhas ? (parou ? `O PC de casa parou de responder. ${falhas} fotos ficaram para depois. Toque em Enviar de novo daqui a 1 minuto (as já enviadas não vão de novo).` : `${falhas} fotos não foram enviadas. Toque em Enviar de novo.`) : 'Fotos enviadas! O PC já está montando o relatório.');
@@ -415,7 +424,7 @@ async function enviar() {
 async function apagarTudo() {
   const total = await contar(), pend = await contarPendentes();
   if (!confirm(pend ? `Apagar todas as ${total} fotos do app? ${pend} ainda não foram enviadas.` : `Apagar todas as ${total} fotos do app?`)) return;
-  await limpar(); lidos = null; try { localStorage.removeItem('enviando'); localStorage.removeItem('importadas'); } catch (e) {} novaContagem(); atualizarInicio();
+  await limpar(); lidos = null; try { ['enviando', 'importadas', 'tudoEnviadoEm'].forEach(k => localStorage.removeItem(k)); } catch (e) {} novaContagem(); atualizarInicio();
 }
 
 // ---------- lista: ver, selecionar e apagar ----------
@@ -510,8 +519,8 @@ function mostrarInstalar() {
   $('maisFotos').onclick = maisFotos;
   $('apagarSel').onclick = apagarMarcadas;
   if (cfg.nome) { mostrar('telaInicio'); atualizarInicio(); iniciarOCR(); } else mostrar('telaNome');
-  if (cfg.nome) setTimeout(retomarEnvio, 1500);
-  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && cfg.nome) retomarEnvio(); });
+  if (cfg.nome) setTimeout(async () => { await limparEnviadas(); retomarEnvio(); }, 1500);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && cfg.nome) limparEnviadas().then(retomarEnvio); });
 })();
 
 // usado nos testes: processa uma imagem como se viesse da camera
