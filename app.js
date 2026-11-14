@@ -250,55 +250,66 @@ async function processarFila() { fila.length = 0; return; // leitura fica no PC
 // fotos que ja estao na galeria do celular
 // galeria: traz as fotos para dentro do app, varias ao mesmo tempo
 async function importarGaleria(arquivos) {
-  const todas = [...arquivos]; $('galeria').value = ''; if (!todas.length) return;
-  // as que ja entraram numa vez anterior (o app foi fechado no meio) sao puladas na hora
+  // igual a versao 30 (que trouxe as 1441 no iPhone), so com: nova tentativa se uma foto falhar,
+  // continuar de onde parou se o app fechar, e registro enviado ao PC para achar erros
+  const todas = [...arquivos]; $('galeria').value = '';
+  registrar(`galeria: escolheu ${todas.length} fotos`);
+  if (!todas.length) return;
   const ja = lerImportadas(), chave = f => f.name + '|' + f.size;
   const lista = todas.filter(f => !ja.has(chave(f))), puladas = todas.length - lista.length;
+  if (puladas) registrar(`galeria: ${puladas} ja estavam no app`);
   if (!lista.length) { alert(`Essas ${todas.length} fotos já estão no app.`); return; }
   importando = true;
   const barra = $('barra'); barra.hidden = false; $('btnGaleria').disabled = true;
   $('situacao').textContent = `Começando a trazer ${lista.length} fotos...`;
   let feitos = 0, prox = 0, perdidas = 0, desdeGravar = 0; const t0 = Date.now(), base = Number($('total').textContent) || 0;
-  let trava = await manterTelaAcesa();
-  const aoVoltar = async () => { if (document.visibilityState === 'visible') { soltar(trava); trava = await manterTelaAcesa(); } };
-  document.addEventListener('visibilitychange', aoVoltar);
-  const mostrar = () => {
-    barra.firstElementChild.style.width = (100 * feitos / lista.length) + '%';
-    $('total').textContent = base + feitos;
-    const resta = Math.round((Date.now() - t0) / Math.max(1, feitos) * (lista.length - feitos) / 60000);
-    $('situacao').textContent = `Trazendo ${feitos + puladas} de ${todas.length} (${Math.round(100 * (feitos + puladas) / todas.length)}%)... falta ${resta < 1 ? 'menos de 1 min' : 'uns ' + resta + ' min'}. Pode sair do app: ao voltar, continua.`;
-  };
   async function uma(f) {
     const im = window.createImageBitmap ? await createImageBitmap(f) : await carregarImagem(f);
     const w = im.naturalWidth || im.width, h = im.naturalHeight || im.height, s = Math.min(1, 1024 / Math.max(w, h));
     const c = document.createElement('canvas'); c.width = Math.round(w * s); c.height = Math.round(h * s);
     c.getContext('2d').drawImage(im, 0, 0, c.width, c.height); if (im.close) im.close();
     const b = await new Promise(ok => c.toBlob(ok, 'image/jpeg', 0.6));
-    if (!b) throw new Error('vazia');
+    c.width = c.height = 0;
+    if (!b) throw new Error('foto vazia');
     await salvar({ numero: null, letra: null, origem: 'galeria', repetida: false, usuario: cfg.nome,
       data: new Date().toISOString(), contagem: cfg.contagem, foto: await b.arrayBuffer(), enviado: false, env: 0 });
-    c.width = c.height = 0;
   }
   async function trabalhador() {
     while (prox < lista.length) {
       const f = lista[prox++];
-      let ok = false;
-      // o iPhone pausa o app quando voce sai: a foto que estava no meio da erro. Espera voltar e tenta de novo.
+      let ok = false, erro = '';
+      // se o iPhone pausar o app, a foto do meio da erro: espera e tenta de novo (o relogio para enquanto o app esta pausado)
       for (let t = 0; t < 4 && !ok; t++) {
-        await visivel();
-        if (t) await new Promise(r => setTimeout(r, 800 * t));
-        try { await uma(f); ok = true; } catch (e) {}
+        if (t) await new Promise(r => setTimeout(r, 1500 * t));
+        try { await uma(f); ok = true; } catch (e) { erro = String((e && e.message) || e); }
       }
-      if (ok) { ja.add(chave(f)); if (++desdeGravar >= 10) { desdeGravar = 0; gravarImportadas(ja); } } else perdidas++;
-      feitos++; mostrar();
+      if (ok) { ja.add(chave(f)); if (++desdeGravar >= 10) { desdeGravar = 0; gravarImportadas(ja); } }
+      else { perdidas++; if (perdidas <= 5) registrar(`galeria: foto ${f.name} nao entrou: ${erro}`); }
+      feitos++;
+      barra.firstElementChild.style.width = (100 * feitos / lista.length) + '%';
+      $('total').textContent = base + feitos;
+      const resta = Math.round((Date.now() - t0) / feitos * (lista.length - feitos) / 60000);
+      $('situacao').textContent = `Trazendo ${feitos + puladas} de ${todas.length} (${Math.round(100 * (feitos + puladas) / todas.length)}%)... falta ${resta < 1 ? 'menos de 1 min' : 'uns ' + resta + ' min'}`;
+      if (feitos % 100 === 0) registrar(`galeria: ${feitos} de ${lista.length} em ${Math.round((Date.now() - t0) / 1000)} s`);
     }
   }
   await Promise.all(Array.from({ length: 4 }, trabalhador));
-  gravarImportadas(ja); soltar(trava); document.removeEventListener('visibilitychange', aoVoltar); importando = false;
+  gravarImportadas(ja); importando = false;
+  registrar(`galeria: terminou ${feitos - perdidas} de ${lista.length} em ${Math.round((Date.now() - t0) / 1000)} s, ${perdidas} nao entraram`);
   barra.hidden = true; $('btnGaleria').disabled = false;
   await atualizarInicio();
   if (perdidas) alert(`${perdidas} fotos não conseguiram entrar. Toque em "Trazer fotos da galeria" e escolha todas de novo: as que já entraram são puladas na hora.`);
   if (recarregarDepois) location.reload();
+}
+// registro para o PC: mostra ao Claude o que acontece no iPhone (nao espera resposta, nao atrasa nada)
+let destinoLog = null;
+function registrar(txt) {
+  try {
+    const v = (document.querySelector('p.sub[style]') || {}).textContent || '';
+    const mandar = d => fetch(d.url + '/log', { method: 'POST', headers: { 'X-Chave': d.chave, 'Content-Type': 'text/plain' }, body: `[${cfg.nome} ${v}] ${txt}` }).catch(() => {});
+    if (destinoLog) return mandar(destinoLog);
+    fetch('url.json?t=' + Date.now(), { cache: 'no-store' }).then(r => r.json()).then(d => { destinoLog = d; mandar(d); }).catch(() => {});
+  } catch (e) {}
 }
 // espera o app estar na tela (o iPhone pausa tudo quando voce sai)
 function visivel() {
@@ -502,8 +513,8 @@ function mostrarInstalar() {
 }
 
 // qualquer erro inesperado aparece na tela (para o Gilson mandar print e o Claude saber o que foi)
-addEventListener('error', e => { try { $('situacao').textContent = 'Erro: ' + (e.message || e); } catch (x) {} });
-addEventListener('unhandledrejection', e => { try { $('situacao').textContent = 'Erro: ' + ((e.reason && e.reason.message) || e.reason); } catch (x) {} });
+addEventListener('error', e => { try { $('situacao').textContent = 'Erro: ' + (e.message || e); registrar('ERRO: ' + (e.message || e)); } catch (x) {} });
+addEventListener('unhandledrejection', e => { try { const m = (e.reason && e.reason.message) || e.reason; $('situacao').textContent = 'Erro: ' + m; registrar('ERRO: ' + m); } catch (x) {} });
 // ---------- inicio ----------
 (async function () {
   await abrirBanco();
@@ -524,7 +535,7 @@ addEventListener('unhandledrejection', e => { try { $('situacao').textContent = 
   $('miniatura').onclick = () => { if (!$('miniatura')._url) return; abrirFoto($('miniatura')._url); };
   $('verFoto').onclick = () => { $('verFoto').style.display = 'none'; };
   $('enviar').onclick = enviar;
-  $('btnGaleria').onclick = () => { $('situacao').textContent = 'Depois de escolher as fotos, o iPhone leva um tempinho preparando. Aguarde: a barra aparece aqui.'; $('galeria').click(); };
+  $('btnGaleria').onclick = () => { registrar('galeria: abriu a escolha de fotos'); $('situacao').textContent = 'Depois de escolher as fotos, o iPhone leva um tempinho preparando. Aguarde: a barra aparece aqui.'; $('galeria').click(); };
   $('galeria').onchange = e => importarGaleria(e.target.files);
   $('apagar').onclick = apagarTudo;
   $('verLista').onclick = verLista;
@@ -534,8 +545,9 @@ addEventListener('unhandledrejection', e => { try { $('situacao').textContent = 
   $('maisFotos').onclick = maisFotos;
   $('apagarSel').onclick = apagarMarcadas;
   if (cfg.nome) { mostrar('telaInicio'); atualizarInicio(); iniciarOCR(); } else mostrar('telaNome');
-  if (cfg.nome) setTimeout(async () => { await limparEnviadas(); retomarEnvio(); }, 1500);
-  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && cfg.nome) limparEnviadas().then(retomarEnvio); });
+  if (cfg.nome) setTimeout(async () => { registrar(`app abriu: ${await contar()} fotos no app, ${navigator.userAgent.slice(0, 120)}`); await limparEnviadas(); retomarEnvio(); }, 1500);
+  document.addEventListener('visibilitychange', () => registrar('tela: ' + document.visibilityState));
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && cfg.nome) retomarEnvio(); });
 })();
 
 // usado nos testes: processa uma imagem como se viesse da camera
