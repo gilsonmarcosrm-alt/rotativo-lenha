@@ -250,33 +250,63 @@ async function processarFila() { fila.length = 0; return; // leitura fica no PC
 // fotos que ja estao na galeria do celular
 // galeria: traz as fotos para dentro do app, varias ao mesmo tempo
 async function importarGaleria(arquivos) {
-  const lista = [...arquivos]; $('galeria').value = ''; if (!lista.length) return;
+  const todas = [...arquivos]; $('galeria').value = ''; if (!todas.length) return;
+  // as que ja entraram numa vez anterior (o app foi fechado no meio) sao puladas na hora
+  const ja = lerImportadas(), chave = f => f.name + '|' + f.size;
+  const lista = todas.filter(f => !ja.has(chave(f))), puladas = todas.length - lista.length;
+  if (!lista.length) { alert(`Essas ${todas.length} fotos já estão no app.`); return; }
+  importando = true;
   const barra = $('barra'); barra.hidden = false; $('btnGaleria').disabled = true;
-  let feitos = 0, prox = 0; const t0 = Date.now(), base = Number($('total').textContent) || 0;
-  const trava = await manterTelaAcesa();
+  let feitos = 0, prox = 0, perdidas = 0, desdeGravar = 0; const t0 = Date.now(), base = Number($('total').textContent) || 0;
+  let trava = await manterTelaAcesa();
+  const aoVoltar = async () => { if (document.visibilityState === 'visible') { soltar(trava); trava = await manterTelaAcesa(); } };
+  document.addEventListener('visibilitychange', aoVoltar);
+  const mostrar = () => {
+    barra.firstElementChild.style.width = (100 * feitos / lista.length) + '%';
+    $('total').textContent = base + feitos;
+    const resta = Math.round((Date.now() - t0) / Math.max(1, feitos) * (lista.length - feitos) / 60000);
+    $('situacao').textContent = `Trazendo ${feitos + puladas} de ${todas.length} (${Math.round(100 * (feitos + puladas) / todas.length)}%)... falta ${resta < 1 ? 'menos de 1 min' : 'uns ' + resta + ' min'}. Pode sair do app: ao voltar, continua.`;
+  };
+  async function uma(f) {
+    const im = window.createImageBitmap ? await createImageBitmap(f) : await carregarImagem(f);
+    const w = im.naturalWidth || im.width, h = im.naturalHeight || im.height, s = Math.min(1, 1024 / Math.max(w, h));
+    const c = document.createElement('canvas'); c.width = Math.round(w * s); c.height = Math.round(h * s);
+    c.getContext('2d').drawImage(im, 0, 0, c.width, c.height); if (im.close) im.close();
+    const b = await new Promise(ok => c.toBlob(ok, 'image/jpeg', 0.6));
+    if (!b) throw new Error('vazia');
+    await salvar({ numero: null, letra: null, origem: 'galeria', repetida: false, usuario: cfg.nome,
+      data: new Date().toISOString(), contagem: cfg.contagem, foto: await b.arrayBuffer(), enviado: false, env: 0 });
+    c.width = c.height = 0;
+  }
   async function trabalhador() {
     while (prox < lista.length) {
       const f = lista[prox++];
-      try {
-        const im = window.createImageBitmap ? await createImageBitmap(f) : await carregarImagem(f);
-        const w = im.naturalWidth || im.width, h = im.naturalHeight || im.height, s = Math.min(1, 1024 / Math.max(w, h));
-        const c = document.createElement('canvas'); c.width = Math.round(w * s); c.height = Math.round(h * s);
-        c.getContext('2d').drawImage(im, 0, 0, c.width, c.height); if (im.close) im.close();
-        const b = await new Promise(ok => c.toBlob(ok, 'image/jpeg', 0.6));
-        await salvar({ numero: null, letra: null, origem: 'galeria', repetida: false, usuario: cfg.nome,
-          data: new Date().toISOString(), contagem: cfg.contagem, foto: await b.arrayBuffer(), enviado: false, env: 0 });
-      } catch (e) {}
-      feitos++; barra.firstElementChild.style.width = (100 * feitos / lista.length) + '%';
-      $('total').textContent = base + feitos;
-      const resta = Math.round((Date.now() - t0) / feitos * (lista.length - feitos) / 60000);
-      $('situacao').textContent = `Trazendo ${feitos} de ${lista.length} (${Math.round(100 * feitos / lista.length)}%)... falta ${resta < 1 ? 'menos de 1 min' : 'uns ' + resta + ' min'}`;
+      let ok = false;
+      // o iPhone pausa o app quando voce sai: a foto que estava no meio da erro. Espera voltar e tenta de novo.
+      for (let t = 0; t < 4 && !ok; t++) {
+        await visivel();
+        if (t) await new Promise(r => setTimeout(r, 800 * t));
+        try { await uma(f); ok = true; } catch (e) {}
+      }
+      if (ok) { ja.add(chave(f)); if (++desdeGravar >= 10) { desdeGravar = 0; gravarImportadas(ja); } } else perdidas++;
+      feitos++; mostrar();
     }
   }
   await Promise.all(Array.from({ length: 4 }, trabalhador));
-  soltar(trava);
+  gravarImportadas(ja); soltar(trava); document.removeEventListener('visibilitychange', aoVoltar); importando = false;
   barra.hidden = true; $('btnGaleria').disabled = false;
   await atualizarInicio();
+  if (perdidas) alert(`${perdidas} fotos não conseguiram entrar. Toque em "Trazer fotos da galeria" e escolha todas de novo: as que já entraram são puladas na hora.`);
+  if (recarregarDepois) location.reload();
 }
+// espera o app estar na tela (o iPhone pausa tudo quando voce sai)
+function visivel() {
+  if (document.visibilityState !== 'hidden') return Promise.resolve();
+  return new Promise(ok => { const f = () => { if (document.visibilityState !== 'hidden') { document.removeEventListener('visibilitychange', f); setTimeout(ok, 500); } }; document.addEventListener('visibilitychange', f); });
+}
+let importando = false, recarregarDepois = false;
+function lerImportadas() { try { return new Set(JSON.parse(localStorage.getItem('importadas') || '[]')); } catch (e) { return new Set(); } }
+function gravarImportadas(s) { try { localStorage.setItem('importadas', JSON.stringify([...s])); } catch (e) {} }
 // tela acesa enquanto traz ou envia fotos (o iPhone pausa tudo quando a tela apaga)
 async function manterTelaAcesa() { try { return await navigator.wakeLock.request('screen'); } catch (e) { return null; } }
 function soltar(t) { try { t && t.release(); } catch (e) {} }
@@ -327,8 +357,9 @@ async function enviar() {
     return (await fetch(d.url + '/ping', { headers: { 'X-Chave': d.chave }, signal: c.signal })).ok; } catch (e) { return false; } };
   // o PC caiu ou trocou de endereco: espera ate 3 minutos pelo endereco novo e continua sozinho
   const recuperar = () => recuperando || (recuperando = (async () => {
-    const ate = Date.now() + 180000;
+    let ate = Date.now() + 180000;
     while (Date.now() < ate) {
+      const v0 = Date.now(); await visivel(); ate += Date.now() - v0; // tempo fora do app nao conta
       $('situacao').textContent = `Reconectando com o PC de casa... (${feitos} de ${pend.length} enviadas)`;
       try { const d = await (await fetch('url.json?t=' + Date.now(), { cache: 'no-store' })).json(); if (await pingar(d)) { destino = d; return true; } } catch (e) {}
       await espera(10000);
@@ -350,11 +381,13 @@ async function enviar() {
       const info = { id: r.id, numero: r.numero, letra: r.letra, origem: r.origem, repetida: r.repetida, usuario: r.usuario, data: r.data };
       let ok = false;
       for (let t = 0; t < 3 && !ok && !parou; t++) {
+        await visivel(); // app fora da tela: espera voltar, sem contar como erro
         if (recuperando) await recuperando;
         if (t) await espera(1500 * t);
         ok = await mandar(r, info);
       }
       if (ok) { await marcarEnviada(r.id); seguidas = 0; feitos++; }
+      else if (document.visibilityState === 'hidden') { fila.unshift(id); continue; } // falhou porque saiu do app: tenta de novo ao voltar
       else if (parou) { fila.unshift(id); }
       else if ((voltas.get(id) || 0) >= 2) { pulou++; } // esta foto nao vai de jeito nenhum: fica para o proximo envio
       else { voltas.set(id, (voltas.get(id) || 0) + 1);
@@ -373,15 +406,16 @@ async function enviar() {
     } catch (e) {}
   }
   enviando = false; soltar(trava); document.removeEventListener('visibilitychange', reacender);
-  if (!falhas) try { localStorage.removeItem('enviando'); } catch (e) {}
+  if (!falhas) try { localStorage.removeItem('enviando'); localStorage.removeItem('importadas'); } catch (e) {}
   barra.hidden = true; await atualizarInicio();
-  alert(falhas ? (parou ? `O PC de casa parou de responder. ${falhas} fotos ficaram para depois. Toque em Enviar de novo daqui a 1 minuto (as já enviadas não vão de novo).` : `${falhas} fotos não foram enviadas. Toque em Enviar de novo.`) : 'Fotos enviadas! O Excel chega no seu e-mail em alguns minutos.');
+  if (recarregarDepois) setTimeout(() => location.reload(), 3000);
+  alert(falhas ? (parou ? `O PC de casa parou de responder. ${falhas} fotos ficaram para depois. Toque em Enviar de novo daqui a 1 minuto (as já enviadas não vão de novo).` : `${falhas} fotos não foram enviadas. Toque em Enviar de novo.`) : 'Fotos enviadas! O PC já está montando o relatório.');
 }
 
 async function apagarTudo() {
   const total = await contar(), pend = await contarPendentes();
   if (!confirm(pend ? `Apagar todas as ${total} fotos do app? ${pend} ainda não foram enviadas.` : `Apagar todas as ${total} fotos do app?`)) return;
-  await limpar(); lidos = null; try { localStorage.removeItem('enviando'); } catch (e) {} novaContagem(); atualizarInicio();
+  await limpar(); lidos = null; try { localStorage.removeItem('enviando'); localStorage.removeItem('importadas'); } catch (e) {} novaContagem(); atualizarInicio();
 }
 
 // ---------- lista: ver, selecionar e apagar ----------
@@ -428,7 +462,8 @@ async function verLista() {
 }
 async function apagarMarcadas() {
   if (!marcadas.size || !confirm(`Apagar ${marcadas.size} foto(s) do app?`)) return;
-  await apagarIds([...marcadas]); await atualizarInicio(); await verLista();
+  await apagarIds([...marcadas]); if (!(await contar())) try { localStorage.removeItem('importadas'); } catch (e) {}
+  await atualizarInicio(); await verLista();
 }
 
 // ---------- aviso para instalar o icone ----------
@@ -452,7 +487,7 @@ function mostrarInstalar() {
   if ('serviceWorker' in navigator) {
     // versao nova chegou: recarrega sozinho para o celular nunca ficar na velha
     const tinha = !!navigator.serviceWorker.controller;
-    navigator.serviceWorker.addEventListener('controllerchange', () => { if (tinha && !window._recarregou) { window._recarregou = 1; location.reload(); } });
+    navigator.serviceWorker.addEventListener('controllerchange', () => { if (tinha && !window._recarregou) { window._recarregou = 1; if (importando || enviando) recarregarDepois = true; else location.reload(); } });
     navigator.serviceWorker.register('sw.js').then(r => r.update()).catch(() => {});
   }
   $('salvarNome').onclick = () => {
