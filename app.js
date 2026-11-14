@@ -232,23 +232,53 @@ async function processarFila() { fila.length = 0; return; // leitura fica no PC
   lendo = false;
 }
 // fotos que ja estao na galeria do celular
+// galeria: manda direto para o PC, sem guardar no app (bem mais rapido)
 async function importarGaleria(arquivos) {
-  const lista = [...arquivos]; if (!lista.length) return;
-  const barra = $('barra'); barra.hidden = false; let n = 0;
-  for (const f of lista) {
-    try {
-      const c = reduzir(await carregarImagem(f));
-      const blob = await paraBlob(c);
-      const id = await salvar({ numero: null, letra: null, origem: 'galeria', repetida: false, usuario: cfg.nome,
-        data: new Date().toISOString(), contagem: cfg.contagem, foto: await blob.arrayBuffer(), enviado: false });
-      fila.push({ id, galeria: true });
-    } catch (e) {}
-    n++; barra.firstElementChild.style.width = (100 * n / lista.length) + '%';
-    $('situacao').textContent = `Trazendo da galeria ${n} de ${lista.length}...`;
-    $('total').textContent = Number($('total').textContent) + 1;
+  const lista = [...arquivos]; $('galeria').value = ''; if (!lista.length) return;
+  const sit = $('situacao');
+  let destino;
+  try { destino = await (await fetch('url.json?t=' + Date.now(), { cache: 'no-store' })).json(); }
+  catch (e) { sit.textContent = 'Sem internet. Conecte no Wi-Fi ou nos dados e tente de novo.'; return; }
+  try { const p = await fetch(destino.url + '/ping', { headers: { 'X-Chave': destino.chave } }); if (!p.ok) throw 0; }
+  catch (e) { sit.textContent = 'O PC de casa não respondeu. Ele precisa estar ligado.'; return; }
+  const contagem = novaContagem(), usuario = cfg.nome, t0 = Date.now();
+  const barra = $('barra'); barra.hidden = false;
+  let feitos = 0, falhas = 0, prox = 0;
+  async function trabalhador() {
+    while (prox < lista.length) {
+      const i = prox++;
+      let corpo = null;
+      try {
+        const f = lista[i];
+        const im = window.createImageBitmap ? await createImageBitmap(f) : await carregarImagem(f);
+        const w = im.naturalWidth || im.width, h = im.naturalHeight || im.height, s = Math.min(1, 1280 / Math.max(w, h));
+        const c = document.createElement('canvas'); c.width = Math.round(w * s); c.height = Math.round(h * s);
+        c.getContext('2d').drawImage(im, 0, 0, c.width, c.height); if (im.close) im.close();
+        corpo = await new Promise(ok => c.toBlob(ok, 'image/jpeg', 0.7));
+      } catch (e) { corpo = lista[i].size < 8000000 ? lista[i] : null; }
+      const info = btoa(unescape(encodeURIComponent(JSON.stringify({ id: i + 1, origem: 'galeria', usuario, data: new Date().toISOString() }))));
+      let ok = false;
+      for (let t = 0; t < 3 && !ok && corpo; t++) {
+        try {
+          const r = await fetch(`${destino.url}/foto?contagem=${encodeURIComponent(contagem)}&id=${i + 1}`, {
+            method: 'PUT', body: corpo, headers: { 'X-Chave': destino.chave, 'X-Info': info, 'Content-Type': 'image/jpeg' } });
+          ok = r.ok;
+        } catch (e) {}
+      }
+      if (!ok) falhas++;
+      feitos++; barra.firstElementChild.style.width = (100 * feitos / lista.length) + '%';
+      const resta = Math.round((Date.now() - t0) / feitos * (lista.length - feitos) / 60000);
+      sit.textContent = `Enviando ${feitos} de ${lista.length}... falta ${resta < 1 ? 'menos de 1 min' : 'uns ' + resta + ' min'}`;
+    }
   }
-  barra.hidden = true; $('galeria').value = '';
-  await atualizarInicio(); processarFila();
+  await Promise.all(Array.from({ length: 8 }, trabalhador));
+  try {
+    await fetch(destino.url + '/fim', { method: 'POST', headers: { 'X-Chave': destino.chave, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contagem, usuario, total: lista.length, falhas }) });
+  } catch (e) {}
+  barra.hidden = true;
+  sit.textContent = falhas ? `Enviadas ${lista.length - falhas} de ${lista.length}. ${falhas} falharam: escolha essas de novo.`
+    : `Pronto! ${lista.length} fotos enviadas. A lista chega no seu e-mail.`;
 }
 let tAviso;
 function avisarRepetida(txt) {
@@ -293,7 +323,7 @@ async function enviar() {
       $('situacao').textContent = `Enviando ${feitos} de ${pend.length}...`;
     }
   }
-  await Promise.all([trabalhador(), trabalhador(), trabalhador(), trabalhador()]);
+  await Promise.all(Array.from({ length: 8 }, trabalhador));
   if (!falhas) {
     try {
       await fetch(destino.url + '/fim', { method: 'POST', headers: { 'X-Chave': destino.chave, 'Content-Type': 'application/json' },
