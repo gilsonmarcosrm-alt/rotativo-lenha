@@ -77,8 +77,8 @@ async function atualizarInicio() {
   $('apagar').disabled = !total;
   let s;
   if (!total) s = 'Nenhuma foto ainda. Toque em CONTAR para começar.';
-  else if (pend) s = `${regs.length} fotos guardadas no app. ${pend} ainda não enviadas. Envie quando estiver no Wi-Fi do escritório.`;
-  else s = `Tudo enviado (${enviados} fotos). Quando o Excel chegar no e-mail, toque em Apagar contagem.`;
+  else if (pend) s = `${regs.length} fotos guardadas no app. ${pend} ainda não enviadas. Toque em Enviar fotos quando tiver internet.`;
+  else s = `Tudo enviado (${enviados} fotos). Quando a lista chegar no seu e-mail, pode apagar as fotos.`;
   $('situacao').textContent = s;
 }
 
@@ -173,14 +173,14 @@ function fecharCamera() {
 // foto inteira, sem corte, igual a camera do celular; se sair em pe, deita
 function capturarQuadro() {
   const v = $('video');
-  const s = Math.min(1, 1400 / Math.max(v.videoWidth, v.videoHeight));
+  const s = Math.min(1, 1024 / Math.max(v.videoWidth, v.videoHeight));
   let c = document.createElement('canvas');
   c.width = Math.round(v.videoWidth * s); c.height = Math.round(v.videoHeight * s);
   c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
   if (c.height > c.width) c = girar(c, Math.abs(gravX) > 6 && gravX < 0 ? 1 : -1);
   return c;
 }
-const paraBlob = c => new Promise(ok => c.toBlob(ok, 'image/jpeg', 0.72));
+const paraBlob = c => new Promise(ok => c.toBlob(ok, 'image/jpeg', 0.6));
 // iPhone estraga Blob guardado no banco: guarda os bytes e remonta a foto na hora de usar
 const fotoBlob = r => r.foto instanceof Blob ? r.foto : new Blob([r.foto], { type: 'image/jpeg' });
 function abrirFoto(url) { $('fotoGrande').src = url; $('verFoto').style.display = 'flex'; }
@@ -257,10 +257,10 @@ async function importarGaleria(arquivos) {
       const f = lista[prox++];
       try {
         const im = window.createImageBitmap ? await createImageBitmap(f) : await carregarImagem(f);
-        const w = im.naturalWidth || im.width, h = im.naturalHeight || im.height, s = Math.min(1, 1280 / Math.max(w, h));
+        const w = im.naturalWidth || im.width, h = im.naturalHeight || im.height, s = Math.min(1, 1024 / Math.max(w, h));
         const c = document.createElement('canvas'); c.width = Math.round(w * s); c.height = Math.round(h * s);
         c.getContext('2d').drawImage(im, 0, 0, c.width, c.height); if (im.close) im.close();
-        const b = await new Promise(ok => c.toBlob(ok, 'image/jpeg', 0.7));
+        const b = await new Promise(ok => c.toBlob(ok, 'image/jpeg', 0.6));
         await salvar({ numero: null, letra: null, origem: 'galeria', repetida: false, usuario: cfg.nome,
           data: new Date().toISOString(), contagem: cfg.contagem, foto: await b.arrayBuffer(), enviado: false, env: 0 });
       } catch (e) {}
@@ -289,35 +289,60 @@ function mostrarLido(txt) {
 async function enviar() {
   let destino;
   try { destino = await (await fetch('url.json?t=' + Date.now(), { cache: 'no-store' })).json(); }
-  catch (e) { alert('Sem internet. Conecte no Wi-Fi do escritório e tente de novo.'); return; }
+  catch (e) { alert('Sem internet. Conecte no Wi-Fi ou nos dados e tente de novo.'); return; }
   try {
     const ping = await fetch(destino.url + '/ping', { headers: { 'X-Chave': destino.chave } });
     if (!ping.ok) throw 0;
-  } catch (e) { alert('O PC que recebe as fotos não respondeu. Ele precisa estar ligado. Nada foi apagado.'); return; }
+  } catch (e) { alert('O PC de casa não respondeu. Ele precisa estar ligado. Nenhuma foto foi apagada.'); return; }
 
   const pend = await idsPendentes();
   const barra = $('barra'); barra.hidden = false; $('enviar').disabled = true;
-  let feitos = 0, falhas = 0;
+  let feitos = 0, falhas = 0, seguidas = 0, parou = false, recuperando = null, pulou = 0; const voltas = new Map();
   const fila = pend.slice();
+  const espera = ms => new Promise(r => setTimeout(r, ms));
+  const pingar = async d => { try { const c = new AbortController(); setTimeout(() => c.abort(), 8000);
+    return (await fetch(d.url + '/ping', { headers: { 'X-Chave': d.chave }, signal: c.signal })).ok; } catch (e) { return false; } };
+  // o PC caiu ou trocou de endereco: espera ate 3 minutos pelo endereco novo e continua sozinho
+  const recuperar = () => recuperando || (recuperando = (async () => {
+    const ate = Date.now() + 180000;
+    while (Date.now() < ate) {
+      $('situacao').textContent = `Reconectando com o PC de casa... (${feitos} de ${pend.length} enviadas)`;
+      try { const d = await (await fetch('url.json?t=' + Date.now(), { cache: 'no-store' })).json(); if (await pingar(d)) { destino = d; return true; } } catch (e) {}
+      await espera(10000);
+    }
+    return false;
+  })().then(ok => { recuperando = null; if (ok) seguidas = 0; else parou = true; return ok; }));
+  async function mandar(r, info) {
+    const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), 45000);
+    try {
+      const resp = await fetch(`${destino.url}/foto?contagem=${encodeURIComponent(r.contagem)}&id=${r.id}`, {
+        method: 'PUT', body: fotoBlob(r), signal: ctl.signal,
+        headers: { 'X-Chave': destino.chave, 'X-Info': btoa(unescape(encodeURIComponent(JSON.stringify(info)))), 'Content-Type': 'image/jpeg' } });
+      return resp.ok;
+    } catch (e) { return false; } finally { clearTimeout(t); }
+  }
   async function trabalhador() {
-    while (fila.length) {
-      const r = await pegarFoto(fila.shift()); if (!r) { feitos++; continue; }
+    while (fila.length && !parou) {
+      const id = fila.shift(), r = await pegarFoto(id); if (!r) { feitos++; continue; }
       const info = { id: r.id, numero: r.numero, letra: r.letra, origem: r.origem, repetida: r.repetida, usuario: r.usuario, data: r.data };
       let ok = false;
-      for (let t = 0; t < 3 && !ok; t++) {
-        try {
-          const resp = await fetch(`${destino.url}/foto?contagem=${encodeURIComponent(r.contagem)}&id=${r.id}`, {
-            method: 'PUT', body: fotoBlob(r),
-            headers: { 'X-Chave': destino.chave, 'X-Info': btoa(unescape(encodeURIComponent(JSON.stringify(info)))), 'Content-Type': 'image/jpeg' } });
-          ok = resp.ok;
-        } catch (e) {}
+      for (let t = 0; t < 3 && !ok && !parou; t++) {
+        if (recuperando) await recuperando;
+        if (t) await espera(1500 * t);
+        ok = await mandar(r, info);
       }
-      if (ok) await marcarEnviada(r.id); else falhas++;
-      feitos++; barra.firstElementChild.style.width = (100 * feitos / pend.length) + '%';
-      $('situacao').textContent = `Enviando ${feitos} de ${pend.length} (${Math.round(100 * feitos / pend.length)}%)...`;
+      if (ok) { await marcarEnviada(r.id); seguidas = 0; feitos++; }
+      else if (parou) { fila.unshift(id); }
+      else if ((voltas.get(id) || 0) >= 2) { pulou++; } // esta foto nao vai de jeito nenhum: fica para o proximo envio
+      else { voltas.set(id, (voltas.get(id) || 0) + 1);
+        if (++seguidas >= 6) { fila.unshift(id); await recuperar(); } else fila.push(id); // tenta de novo depois
+        continue; }
+      barra.firstElementChild.style.width = (100 * (feitos + pulou) / pend.length) + '%';
+      if (!recuperando) $('situacao').textContent = `Enviando ${feitos} de ${pend.length} (${Math.round(100 * feitos / pend.length)}%)...`;
     }
   }
   await Promise.all(Array.from({ length: 8 }, trabalhador));
+  falhas = pend.length - feitos;
   if (!falhas) {
     try {
       await fetch(destino.url + '/fim', { method: 'POST', headers: { 'X-Chave': destino.chave, 'Content-Type': 'application/json' },
@@ -325,7 +350,7 @@ async function enviar() {
     } catch (e) {}
   }
   barra.hidden = true; await atualizarInicio();
-  alert(falhas ? `${falhas} fotos não foram enviadas. Toque em Enviar de novo.` : 'Fotos enviadas! O Excel chega no seu e-mail em alguns minutos.');
+  alert(falhas ? (parou ? `O PC de casa parou de responder. ${falhas} fotos ficaram para depois. Toque em Enviar de novo daqui a 1 minuto (as já enviadas não vão de novo).` : `${falhas} fotos não foram enviadas. Toque em Enviar de novo.`) : 'Fotos enviadas! O Excel chega no seu e-mail em alguns minutos.');
 }
 
 async function apagarTudo() {

@@ -158,14 +158,24 @@
       const { numero, letra } = dividir(linha.chars);
       if (!numero.length || !letra.length || numero.length > 4) continue;
       const extras = pingos(comps, letra, linha.hMed);
-      const base = numero.reduce((a, c) => a + c.y1, 0) / numero.length;
-      const topoNum = numero.reduce((a, c) => a + c.y0, 0) / numero.length;
+      // reta pelo pe e pelo topo dos numeros: acompanha etiqueta torta
+      const cx = c => (c.x0 + c.x1) / 2;
+      const reta = sel => {
+        const xs = numero.map(cx), ys = numero.map(sel), n = xs.length;
+        const mx = xs.reduce((a, b) => a + b, 0) / n, my = ys.reduce((a, b) => a + b, 0) / n;
+        let sxx = 0, sxy = 0; for (let i = 0; i < n; i++) { sxx += (xs[i] - mx) ** 2; sxy += (xs[i] - mx) * (ys[i] - my); }
+        const k = n > 1 && sxx > 0 ? Math.max(-0.2, Math.min(0.2, sxy / sxx)) : 0;
+        return x => my + k * (x - mx);
+      };
+      const retaBase = reta(c => c.y1), retaTopo = reta(c => c.y0);
+      const xl = letra.reduce((a, c) => a + cx(c), 0) / letra.length;
+      const base = retaBase(xl), topoNum = retaTopo(xl);
       const hNum = base - topoNum;
       const topoLetra = Math.min(...letra.map(c => c.y0));
       const fundoLetra = Math.max(...letra.map(c => c.y1));
       const larg = Math.max(...letra.map(c => c.x1)) - Math.min(...letra.map(c => c.x0));
       return {
-        geo: { topo: (topoLetra - topoNum) / hNum, fundo: (fundoLetra - base) / hNum, pingo: extras.length > 0, fina: larg < hNum * 0.3 },
+        geo: { topo: (topoLetra - topoNum) / hNum, fundo: (fundoLetra - base) / hNum, pingo: extras.length > 0, fina: larg < hNum * 0.3, larg: larg / hNum, nN: numero.length },
         numeroImg: recortar(lab, w, numero, linha.hMed),
         letraImg: recortar(lab, w, letra, linha.hMed, extras),
         nNumero: numero.length, nLetra: letra.length,
@@ -182,8 +192,13 @@
     const bruto = (txtLetra || '').replace(/[^A-Za-z]/g, '').slice(0, 1);
     let l = bruto.toUpperCase();
     // i e j sao tracos finos e o OCR confunde: a perna do j desce abaixo da linha dos numeros
-    if (geo && (!l ? geo.fina : 'IJ'.includes(l) || bruto === 'L' || bruto === '1')) l = geo.fundo > 0.08 ? 'J' : 'I';
+    if (geo && geo.larg !== undefined) {
+      const confunde = !l || 'IJLTF1Y'.includes(l) || bruto === 'l';
+      if (geo.larg < 0.55 && confunde) l = geo.fundo > 0.09 ? 'J' : 'I';   // traco fino: decide pela perna do j
+      else if (geo.larg >= 0.55 && confunde) l = '';                        // separou errado: nao arrisca
+    } else if (geo && (!l ? geo.fina : 'IJ'.includes(l) || bruto === 'L' || bruto === '1')) l = geo.fundo > 0.08 ? 'J' : 'I';
     const num = parseInt(n, 10);
+    if (geo && geo.nN && n.length !== geo.nN) return { numero: isNaN(num) ? null : num, letra: l || null, ok: false }; // sobrou ou faltou digito
     const ok = n.length >= 1 && n.length <= 4 && num >= 1 && num <= 1255 && /^[A-Z]$/.test(l);
     return { numero: isNaN(num) ? null : num, letra: l || null, ok };
   }
