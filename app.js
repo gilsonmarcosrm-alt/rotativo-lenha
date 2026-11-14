@@ -257,6 +257,7 @@ async function importarGaleria(arquivos) {
   if (!lista.length) { alert(`Essas ${todas.length} fotos já estão no app.`); return; }
   importando = true;
   const barra = $('barra'); barra.hidden = false; $('btnGaleria').disabled = true;
+  $('situacao').textContent = `Começando a trazer ${lista.length} fotos...`;
   let feitos = 0, prox = 0, perdidas = 0, desdeGravar = 0; const t0 = Date.now(), base = Number($('total').textContent) || 0;
   let trava = await manterTelaAcesa();
   const aoVoltar = async () => { if (document.visibilityState === 'visible') { soltar(trava); trava = await manterTelaAcesa(); } };
@@ -302,13 +303,24 @@ async function importarGaleria(arquivos) {
 // espera o app estar na tela (o iPhone pausa tudo quando voce sai)
 function visivel() {
   if (document.visibilityState !== 'hidden') return Promise.resolve();
-  return new Promise(ok => { const f = () => { if (document.visibilityState !== 'hidden') { document.removeEventListener('visibilitychange', f); setTimeout(ok, 500); } }; document.addEventListener('visibilitychange', f); });
+  return new Promise(ok => {
+    const fim = () => { document.removeEventListener('visibilitychange', f); clearInterval(t); setTimeout(ok, 300); };
+    const f = () => { if (document.visibilityState !== 'hidden') fim(); };
+    const t = setInterval(f, 1000);
+    document.addEventListener('visibilitychange', f);
+  });
 }
 let importando = false, recarregarDepois = false;
 function lerImportadas() { try { return new Set(JSON.parse(localStorage.getItem('importadas') || '[]')); } catch (e) { return new Set(); } }
 function gravarImportadas(s) { try { localStorage.setItem('importadas', JSON.stringify([...s])); } catch (e) {} }
 // tela acesa enquanto traz ou envia fotos (o iPhone pausa tudo quando a tela apaga)
-async function manterTelaAcesa() { try { return await navigator.wakeLock.request('screen'); } catch (e) { return null; } }
+function manterTelaAcesa() {
+  // nunca trava o app esperando: se o iPhone nao responder em 1 s, segue sem
+  try {
+    if (!navigator.wakeLock) return Promise.resolve(null);
+    return Promise.race([navigator.wakeLock.request('screen').catch(() => null), new Promise(ok => setTimeout(() => ok(null), 1000))]);
+  } catch (e) { return Promise.resolve(null); }
+}
 function soltar(t) { try { t && t.release(); } catch (e) {} }
 let tAviso;
 function avisarRepetida(txt) {
@@ -489,6 +501,9 @@ function mostrarInstalar() {
     el.innerHTML = '<b>Para instalar o ícone:</b> toque nos 3 pontinhos do Chrome e depois em <b>Instalar app</b> ou <b>Adicionar à tela inicial</b>.';
 }
 
+// qualquer erro inesperado aparece na tela (para o Gilson mandar print e o Claude saber o que foi)
+addEventListener('error', e => { try { $('situacao').textContent = 'Erro: ' + (e.message || e); } catch (x) {} });
+addEventListener('unhandledrejection', e => { try { $('situacao').textContent = 'Erro: ' + ((e.reason && e.reason.message) || e.reason); } catch (x) {} });
 // ---------- inicio ----------
 (async function () {
   await abrirBanco();
