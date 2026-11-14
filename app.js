@@ -252,7 +252,7 @@ async function importarGaleria(arquivos) {
       feitos++; barra.firstElementChild.style.width = (100 * feitos / lista.length) + '%';
       $('total').textContent = base + feitos;
       const resta = Math.round((Date.now() - t0) / feitos * (lista.length - feitos) / 60000);
-      $('situacao').textContent = `Trazendo ${feitos} de ${lista.length}... falta ${resta < 1 ? 'menos de 1 min' : 'uns ' + resta + ' min'}`;
+      $('situacao').textContent = `Trazendo ${feitos} de ${lista.length} (${Math.round(100 * feitos / lista.length)}%)... falta ${resta < 1 ? 'menos de 1 min' : 'uns ' + resta + ' min'}`;
     }
   }
   await Promise.all(Array.from({ length: 4 }, trabalhador));
@@ -299,7 +299,7 @@ async function enviar() {
       }
       if (ok) { r.enviado = true; await atualizar(r); } else falhas++;
       feitos++; barra.firstElementChild.style.width = (100 * feitos / pend.length) + '%';
-      $('situacao').textContent = `Enviando ${feitos} de ${pend.length}...`;
+      $('situacao').textContent = `Enviando ${feitos} de ${pend.length} (${Math.round(100 * feitos / pend.length)}%)...`;
     }
   }
   await Promise.all(Array.from({ length: 8 }, trabalhador));
@@ -384,7 +384,7 @@ function mostrarInstalar() {
   $('miniatura').onclick = () => { if (!$('miniatura')._url) return; abrirFoto($('miniatura')._url); };
   $('verFoto').onclick = () => { $('verFoto').style.display = 'none'; };
   $('enviar').onclick = enviar;
-  $('btnGaleria').onclick = () => $('galeria').click();
+  $('btnGaleria').onclick = () => { $('situacao').textContent = 'Depois de escolher as fotos, o iPhone leva um tempinho preparando. Aguarde: a barra aparece aqui.'; $('galeria').click(); };
   $('galeria').onchange = e => importarGaleria(e.target.files);
   $('apagar').onclick = apagarTudo;
   $('verLista').onclick = verLista;
